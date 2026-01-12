@@ -1,7 +1,0 @@
-../Lightning/driver.h:88:20:ws_set_pixel_rgb	1
-../Lightning/zones.c:9:14:clamp01f	3
-../Lightning/zones.c:16:24:led_index3	1
-../Lightning/zones.c:19:13:apply_zone_fx	22
-../Lightning/zones.c:165:6:zones_apply_scene	5
-../Lightning/zones.c:179:6:zones_apply_intro	27
-../Lightning/zones.c:281:6:zones_apply_outro	17

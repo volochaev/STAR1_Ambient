@@ -1,0 +1,90 @@
+# STM32 Cube IDE - Build artifacts
+Debug/
+Release/
+.settings/
+.metadata/
+.project
+.cproject
+
+# Compiled Object files
+*.o
+*.obj
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.su
+*.idb
+*.pdb
+
+# Preprocessor output
+*.i
+*.ii
+*.s
+
+# Assembly listing
+*.lst
+
+# Linker output
+*.lss
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# IDE - Eclipse
+.metadata/
+bin/
+tmp/
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.settings/
+.loadpath
+.recommenders
+
+# IDE - STM32CubeIDE specific
+*.launch
+!*.launch
+.cproject
+.project
+.settings/
+
+# System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.log
+*.tmp
+*.temp
+
+# Backup files
+*~
+*.bak
+*.swp
+*.swo

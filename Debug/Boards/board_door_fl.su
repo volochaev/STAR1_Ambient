@@ -1,2 +1,0 @@
-../Boards/board_door_fl.c:68:6:board_fl_led_init	24	static
-../Boards/board_door_fl.c:119:6:board_fl_led_render_all	8	static
