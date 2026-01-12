@@ -10,21 +10,29 @@
 /* OEM CAN ID (IC → ambient) */
 #define CAN_OEM_ID       0x351U
 
-/* Extended ambient control */
-#define CAN_EXT_ID       0x352U
+/* Extended ambient control - объединен с CAN_MASTER_ID */
+#define CAN_EXT_ID       0x353U  /* тот же ID, различается по типу пакета */
 
 /* Master broadcast ID (master → slaves) */
+/* Также используется для discovery, sync и ext пакетов (различаются по типу в data[0]) */
 #define CAN_MASTER_ID    0x353U
 
 /* Discovery packet ID (для автоматического определения master) */
 #define CAN_DISCOVERY_ID 0x353U  /* тот же ID, но другой формат */
 
-/* Sync packet ID (heartbeat от master) */
-#define CAN_SYNC_ID      0x354U
+/* Sync packet ID (heartbeat от master) - объединен с CAN_MASTER_ID */
+#define CAN_SYNC_ID      0x353U  /* тот же ID, различается по типу пакета */
 
 /* Extended flags */
 #define EXT_FLAG_EXTENDED   0x01
 #define EXT_FLAG_NIGHT      0x02
+
+/* Packet type markers для CAN_MASTER_ID (0x353) */
+#define PKT_TYPE_DISCOVERY  0x00  /* Discovery: data[0] = board_type (0-5) */
+#define PKT_TYPE_MASTER     0x10  /* Master: data[0] = 0x10 | flags, data[1-4] = state */
+#define PKT_TYPE_SYNC       0x20  /* Sync: data[0] = 0x20 | bank_id, data[1] = theme_index */
+#define PKT_TYPE_EXT        0x30  /* Extended: data[0] = 0x30 | flags, data[1] = bank_id, data[2] = theme_index */
+#define PKT_TYPE_MASK       0xF0  /* Маска для типа пакета (старшие 4 бита) */
 
 /* Board types для discovery */
 #define BOARD_TYPE_FL        0   /* Front-Left door */
@@ -83,6 +91,9 @@ void can_ambient_send_master_packet(void);
 
 /* Send sync/heartbeat packet (master only) */
 void can_ambient_send_sync_packet(void);
+
+/* Send extended sync packet (master only, для синхронизации расширенного режима) */
+void can_ambient_send_ext_packet(void);
 
 /* Send discovery packet (all boards) */
 void can_ambient_send_discovery_packet(void);

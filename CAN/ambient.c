@@ -20,6 +20,7 @@ static int8_t g_role = -1;  /* -1 = unknown/auto, 0 = slave, 1 = master */
 static uint32_t g_last_master_heartbeat_ms = 0;
 static uint32_t g_last_discovery_send_ms = 0;
 static uint32_t g_last_sync_send_ms = 0;
+static uint32_t g_last_ext_send_ms = 0;
 static uint8_t g_discovered_boards[6] = {0, 0, 0, 0, 0, 0};  /* FL, FR, RL, RR, DASHBOARD, REAR */
 static uint32_t g_board_unique_id = 0;  /* можно использовать UID чипа */
 
@@ -31,6 +32,7 @@ void can_ambient_init(FDCAN_HandleTypeDef *hfdcan)
     g_last_master_heartbeat_ms = 0;
     g_last_discovery_send_ms = 0;
     g_last_sync_send_ms = 0;
+    g_last_ext_send_ms = 0;
     
     /* Генерируем уникальный ID для этой платы (можно использовать UID чипа) */
     g_board_unique_id = HAL_GetTick() ^ (BOARD_TYPE << 8);
@@ -38,24 +40,12 @@ void can_ambient_init(FDCAN_HandleTypeDef *hfdcan)
     FDCAN_FilterTypeDef f;
 
     /* Все платы слушают discovery, sync и master пакеты */
-    /* Discovery/Sync/Master packet 0x353/0x354 */
+    /* Discovery/Sync/Master packet 0x353 (объединены, различаются по типу в data[0]) */
     f.IdType = FDCAN_STANDARD_ID;
     f.FilterIndex = 0;
     f.FilterType = FDCAN_FILTER_MASK;
     f.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
-    f.FilterID1 = CAN_DISCOVERY_ID;
-    f.FilterID2 = 0x7FF;
-    HAL_FDCAN_ConfigFilter(g_can, &f);
-
-    /* Sync packet 0x354 */
-    f.FilterIndex = 1;
-    f.FilterID1 = CAN_SYNC_ID;
-    f.FilterID2 = 0x7FF;
-    HAL_FDCAN_ConfigFilter(g_can, &f);
-
-    /* Master packet 0x353 (тот же ID, но другой формат) */
-    f.FilterIndex = 2;
-    f.FilterID1 = CAN_MASTER_ID;
+    f.FilterID1 = CAN_MASTER_ID;  /* 0x353 - используется для всех трех типов пакетов */
     f.FilterID2 = 0x7FF;
     HAL_FDCAN_ConfigFilter(g_can, &f);
 
@@ -65,11 +55,8 @@ void can_ambient_init(FDCAN_HandleTypeDef *hfdcan)
     f.FilterID2 = 0x7FF;
     HAL_FDCAN_ConfigFilter(g_can, &f);
 
-    /* Extended ambient packet 0x352 (все слушают) */
-    f.FilterIndex = 4;
-    f.FilterID1 = CAN_EXT_ID;
-    f.FilterID2 = 0x7FF;
-    HAL_FDCAN_ConfigFilter(g_can, &f);
+    /* Extended ambient packet теперь использует тот же ID 0x353, различается по типу */
+    /* Фильтр уже настроен выше для CAN_MASTER_ID (0x353) */
 
     HAL_FDCAN_ActivateNotification(g_can,
         FDCAN_IT_RX_FIFO0_NEW_MESSAGE,
@@ -96,7 +83,8 @@ static void handle_ext(const uint8_t *d, uint8_t len)
 {
     if (len < 3) return;
 
-    uint8_t flags    = d[0];
+    /* Формат extended пакета: data[0] = 0x30 | flags, data[1] = bank_id, data[2] = theme_index */
+    uint8_t flags    = d[0] & 0x0F;  /* Извлекаем только flags (младшие 4 бита) */
     uint8_t bank_id  = d[1];
     uint8_t theme_id = d[2];
 
@@ -113,13 +101,13 @@ static void handle_master(const uint8_t *d, uint8_t len)
     if (len < 4) return;
 
     /* Формат master пакета:
-     * [0] = flags (extended_mode, night_mode)
+     * [0] = 0x10 | flags (extended_mode, night_mode в младших битах)
      * [1] = bank_id
      * [2] = theme_index
      * [3] = oem_color (0=Amber,1=Blue,2=White)
      * [4] = brightness_raw (0..5)
      */
-    uint8_t flags = d[0];
+    uint8_t flags = d[0] & 0x0F;  /* Извлекаем только flags (младшие 4 бита) */
     uint8_t bank_id = d[1];
     uint8_t theme_id = d[2];
     uint8_t oem_col = d[3];
@@ -138,7 +126,7 @@ static void handle_discovery(const uint8_t *d, uint8_t len)
 {
     if (len < 2) return;
     
-    uint8_t board_type = d[0];
+    uint8_t board_type = d[0] & 0x0F;  /* Извлекаем board_type (младшие 4 бита) */
     
     /* Запоминаем, что эта плата присутствует */
     if (board_type < 6) {
@@ -153,6 +141,15 @@ static void handle_sync(const uint8_t *d, uint8_t len)
     
     /* Master жив, обновляем время последнего heartbeat */
     g_last_master_heartbeat_ms = HAL_GetTick();
+    
+    /* Формат sync: data[0] = 0x20 | bank_id, data[1] = theme_index */
+    /* Можно обновить bank_id и theme_index из sync пакета для синхронизации */
+    uint8_t bank_id = d[0] & 0x0F;  /* Извлекаем bank_id (младшие 4 бита) */
+    uint8_t theme_id = d[1];
+    
+    /* Обновляем состояние из sync пакета (опционально) */
+    g_amb_can.bank_id = bank_id;
+    g_amb_can.theme_index = theme_id;
     
     /* Если мы были в режиме failover и получили sync от master - остаемся slave */
     if (g_role == 1 && !can_ambient_is_master()) {
@@ -173,18 +170,44 @@ static void handle_sync(const uint8_t *d, uint8_t len)
 
 void can_ambient_process_rx(uint32_t id, uint8_t *data, uint8_t len)
 {
-    /* Discovery пакеты обрабатывают все (формат: первый байт = board type 0-5) */
-    if (id == CAN_DISCOVERY_ID && len >= 2 && data[0] < 6) {
+    if (id == CAN_MASTER_ID) {
+        /* Все пакеты с ID 0x353 различаются по типу в data[0] */
+        if (len < 1) return;
+        
+        uint8_t pkt_type = data[0] & PKT_TYPE_MASK;
+        
+        if (pkt_type == PKT_TYPE_DISCOVERY) {
+            /* Discovery пакет: data[0] = board_type (0-5) */
+            if (len >= 2 && (data[0] & ~PKT_TYPE_MASK) < 6) {
         handle_discovery(data, len);
+            }
+            return;
+        } else if (pkt_type == PKT_TYPE_MASTER) {
+            /* Master пакет: data[0] = 0x10 | flags, data[1-4] = state */
+            if (can_ambient_is_master()) {
+                /* Master не обрабатывает свои собственные пакеты */
         return;
     }
-    
-    /* Master пакеты имеют тот же ID, но формат другой (первый байт >= 3 или flags) */
-    /* Различаем по формату: discovery начинается с board_type (0-2), master с flags */
-    
-    /* Sync пакеты обрабатывают все (для отслеживания heartbeat) */
-    if (id == CAN_SYNC_ID) {
+            handle_master(data, len);
+            /* Обновляем heartbeat при получении master пакета */
+            g_last_master_heartbeat_ms = HAL_GetTick();
+            return;
+        } else if (pkt_type == PKT_TYPE_SYNC) {
+            /* Sync пакет: data[0] = 0x20 | bank_id, data[1] = theme_index */
         handle_sync(data, len);
+            return;
+        } else if (pkt_type == PKT_TYPE_EXT) {
+            /* Extended пакет: data[0] = 0x30 | flags, data[1] = bank_id, data[2] = theme_index */
+            if (can_ambient_is_master()) {
+                /* Master не обрабатывает свои собственные пакеты */
+                return;
+            }
+            handle_ext(data, len);
+            /* Обновляем heartbeat при получении ext пакета */
+            g_last_master_heartbeat_ms = HAL_GetTick();
+            return;
+        }
+        /* Неизвестный тип пакета - игнорируем */
         return;
     }
     
@@ -193,16 +216,7 @@ void can_ambient_process_rx(uint32_t id, uint8_t *data, uint8_t len)
         if (id == CAN_OEM_ID) {
             handle_oem(data, len);
         }
-        else if (id == CAN_EXT_ID) {
-            handle_ext(data, len);
-        }
-    } else {
-        /* Slave обрабатывает пакеты от master */
-        if (id == CAN_MASTER_ID) {
-            handle_master(data, len);
-            /* Также обновляем heartbeat при получении master пакета */
-            g_last_master_heartbeat_ms = HAL_GetTick();
-        }
+        /* CAN_EXT_ID теперь отправляется от master, а не принимается */
     }
 }
 
@@ -394,6 +408,14 @@ void can_ambient_update_role(uint32_t now_ms)
         g_last_sync_send_ms = now_ms;
     }
     
+    /* Master отправляет extended пакеты для синхронизации расширенного режима */
+    /* Отправляем с той же частотой, что и sync пакеты, когда включен extended режим */
+    if (can_ambient_is_master() && g_amb_can.extended_mode && 
+        (now_ms - g_last_ext_send_ms >= SYNC_INTERVAL_MS)) {
+        can_ambient_send_ext_packet();
+        g_last_ext_send_ms = now_ms;
+    }
+    
     /* Стареем информацию о других платах (если не получаем discovery 5 сек) */
     static uint32_t last_discovery_cleanup_ms = 0;
     if (now_ms - last_discovery_cleanup_ms >= 5000u) {
@@ -422,7 +444,7 @@ void can_ambient_send_master_packet(void)
     if (g_amb_can.extended_mode) flags |= EXT_FLAG_EXTENDED;
     if (g_amb_can.night_mode) flags |= EXT_FLAG_NIGHT;
 
-    tx_data[0] = flags;
+    tx_data[0] = PKT_TYPE_MASTER | (flags & 0x0F);  /* Тип пакета + flags */
     tx_data[1] = g_amb_can.bank_id;
     tx_data[2] = g_amb_can.theme_index;
     tx_data[3] = g_amb_can.oem_color;
@@ -454,8 +476,8 @@ void can_ambient_send_sync_packet(void)
     FDCAN_TxHeaderTypeDef tx_header;
     uint8_t tx_data[8];
 
-    /* Формат sync пакета: bank_id, theme_index */
-    tx_data[0] = g_amb_can.bank_id;
+    /* Формат sync пакета: data[0] = 0x20 | bank_id, data[1] = theme_index */
+    tx_data[0] = PKT_TYPE_SYNC | (g_amb_can.bank_id & 0x0F);
     tx_data[1] = g_amb_can.theme_index;
     tx_data[2] = 0;
     tx_data[3] = 0;
@@ -464,7 +486,44 @@ void can_ambient_send_sync_packet(void)
     tx_data[6] = 0;
     tx_data[7] = 0;
 
-    tx_header.Identifier = CAN_SYNC_ID;
+    tx_header.Identifier = CAN_MASTER_ID;  /* Используем тот же ID */
+    tx_header.IdType = FDCAN_STANDARD_ID;
+    tx_header.TxFrameType = FDCAN_DATA_FRAME;
+    tx_header.DataLength = FDCAN_DLC_BYTES_8;
+    tx_header.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
+    tx_header.BitRateSwitch = FDCAN_BRS_OFF;
+    tx_header.FDFormat = FDCAN_CLASSIC_CAN;
+    tx_header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
+    tx_header.MessageMarker = 0;
+
+    uint32_t tx_mailbox;
+    HAL_FDCAN_AddMessageToTxFifoQ(g_can, &tx_header, tx_data, &tx_mailbox);
+}
+
+void can_ambient_send_ext_packet(void)
+{
+    if (!g_can || !can_ambient_is_master()) {
+        return;
+    }
+
+    FDCAN_TxHeaderTypeDef tx_header;
+    uint8_t tx_data[8];
+
+    /* Формат extended пакета: data[0] = 0x30 | flags, data[1] = bank_id, data[2] = theme_index */
+    uint8_t flags = 0;
+    if (g_amb_can.extended_mode) flags |= EXT_FLAG_EXTENDED;
+    if (g_amb_can.night_mode) flags |= EXT_FLAG_NIGHT;
+
+    tx_data[0] = PKT_TYPE_EXT | (flags & 0x0F);  /* Тип пакета + flags */
+    tx_data[1] = g_amb_can.bank_id;
+    tx_data[2] = g_amb_can.theme_index;
+    tx_data[3] = 0;
+    tx_data[4] = 0;
+    tx_data[5] = 0;
+    tx_data[6] = 0;
+    tx_data[7] = 0;
+
+    tx_header.Identifier = CAN_MASTER_ID;  /* Используем тот же ID */
     tx_header.IdType = FDCAN_STANDARD_ID;
     tx_header.TxFrameType = FDCAN_DATA_FRAME;
     tx_header.DataLength = FDCAN_DLC_BYTES_8;
@@ -487,8 +546,8 @@ void can_ambient_send_discovery_packet(void)
     FDCAN_TxHeaderTypeDef tx_header;
     uint8_t tx_data[8];
 
-    /* Формат discovery пакета: BOARD_TYPE, unique_id */
-    tx_data[0] = BOARD_TYPE;
+    /* Формат discovery пакета: data[0] = board_type (0-5), unique_id */
+    tx_data[0] = PKT_TYPE_DISCOVERY | (BOARD_TYPE & 0x0F);
     tx_data[1] = (uint8_t)(g_board_unique_id & 0xFF);
     tx_data[2] = (uint8_t)((g_board_unique_id >> 8) & 0xFF);
     tx_data[3] = (uint8_t)((g_board_unique_id >> 16) & 0xFF);
