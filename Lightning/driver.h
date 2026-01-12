@@ -1,9 +1,31 @@
+/**
+ ******************************************************************************
+ * @file    driver.h
+ * @brief   WS2812B LED driver using TIM PWM + DMA
+ * @details Low-level driver for WS2812B RGB LEDs using STM32 timer PWM
+ *          with DMA for efficient data transfer. Supports up to 4 independent
+ *          channels (zones) using TIM1 channels 1-4.
+ *
+ * @section Driver Architecture
+ * - Uses TIM1 PWM at 800 kHz for WS2812B timing
+ * - Double buffered DMA for smooth frame updates
+ * - GRB color format (green, red, blue byte order)
+ * - Global brightness control with per-frame dimming
+ *
+ * @section Usage
+ * 1. Initialize with ws_init() providing framebuffer and DMA buffers
+ * 2. Set pixel colors using ws_set_pixel_rgb()
+ * 3. Call ws_render() to start DMA transfer
+ * 4. Handle DMA completion in HAL_TIM_PWM_PulseFinishedCallback using ws_dma_tc_isr()
+ *
+ * @note DMA buffers must be large enough: (led_count * 3 * 8) + WS_RESET_SLOTS words
+ *
+ * @version 2.0
+ * @date    2025
+ ******************************************************************************
+ */
 
 #pragma once
-/**
- * @file driver.h
- * @brief Multi-channel WS2812B driver on TIM PWM + DMA.
- */
 
 #include "main.h"
 #include <stdint.h>

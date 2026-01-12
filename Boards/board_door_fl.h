@@ -1,17 +1,32 @@
-#pragma once
 /**
- * @file board_door_fl.h
- * @brief Hardware mapping for Front-Left door ambient zones.
+ ******************************************************************************
+ * @file    board_door_fl.h
+ * @brief   Hardware configuration for Front-Left door ambient lighting board
+ * @details Defines LED strip configuration, zone mapping, and hardware
+ *          initialization for the front-left door ambient lighting module.
  *
- * Тут описываем:
- *  - какие физические WS2812-линии есть на модуле
- *  - сколько в них диодов
- *  - какие TIM-каналы за них отвечают
- *  - extern g_zone_map[] для zones.c
+ * @section Hardware Configuration
+ * - LED strips: Main strip (120 LEDs), Handle (8 LEDs), Storage (6 LEDs), Footwell (10 LEDs)
+ * - TIM channels: TIM1_CH1 (strip), TIM1_CH2 (handle), TIM1_CH3 (storage), TIM1_CH4 (footwell)
+ * - Board type: BOARD_TYPE_FL (used for CAN discovery)
+ *
+ * @section Zone Mapping
+ * Defines g_zone_map[] mapping logical zones (WS_ZONE_STRIP, WS_ZONE_HANDLE, etc.)
+ * to physical LED strips for use by zones.c.
+ *
+ * @version 2.0
+ * @date    2025
+ ******************************************************************************
  */
+
+#pragma once
 
 #include "driver.h"
 #include "zones.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Определение типа платы для CAN discovery */
 #ifndef BOARD_TYPE
@@ -38,3 +53,9 @@ void board_fl_led_init(void);
 
 /* Удобный хелпер: отрендерить все линии этого борда */
 void board_fl_led_render_all(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* BOARD_DOOR_FL_H */

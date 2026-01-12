@@ -1,3 +1,33 @@
+/**
+ ******************************************************************************
+ * @file    ambient.h
+ * @brief   CAN communication protocol for ambient lighting system
+ * @details This module implements the CAN bus communication protocol for the
+ *          STAR1 Ambient lighting system. It supports master/slave architecture
+ *          with automatic role discovery, failover mechanisms, and synchronized
+ *          theme control across multiple boards.
+ *
+ * @section Protocol Overview
+ * The system uses two CAN IDs:
+ * - 0x351: OEM packets from vehicle IC (brightness, color)
+ * - 0x353: Unified Master Protocol (discovery, sync, master, extended packets)
+ *
+ * @section Master/Slave Architecture
+ * One board acts as master (automatically determined by priority), others as slaves.
+ * Master reads OEM CAN packets and broadcasts state to all slaves.
+ * Automatic failover if master fails.
+ *
+ * @section Extended Mode
+ * Extended mode allows manual theme selection via bank_id and theme_index.
+ * Toggled by 5 color changes within 3 seconds.
+ *
+ * @note    All boards use the same firmware. Board type is determined via BOARD_TYPE.
+ *
+ * @version 2.0
+ * @date    2025
+ ******************************************************************************
+ */
+
 #ifndef CAN_AMBIENT_H
 #define CAN_AMBIENT_H
 
@@ -6,6 +36,10 @@
 #include "scene_player.h"
 #include "presets.h"
 #include "driver.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* OEM CAN ID (IC → ambient) */
 #define CAN_OEM_ID       0x351U
@@ -54,57 +88,105 @@
 #define AMB_ROLE_MASTER  -1  /* -1 = auto-detect, 0 = slave, 1 = master */
 #endif
 
-/* Board type - должен быть определен в board_xxx.h */
-#ifndef BOARD_TYPE
-#define BOARD_TYPE  BOARD_TYPE_FL  /* по умолчанию FL */
-#endif
-
 /* Timeouts для failover */
 #define MASTER_HEARTBEAT_TIMEOUT_MS  1000u  /* если master не отвечает 1 сек */
 #define DISCOVERY_INTERVAL_MS         1000u  /* discovery пакет каждую секунду */
 #define SYNC_INTERVAL_MS              250u   /* sync пакет каждые 250мс */
 
+/**
+ * @brief CAN ambient lighting state structure
+ * @details Stores current state of ambient lighting system including OEM color,
+ *          brightness, extended mode, and theme selection.
+ */
 typedef struct {
-    uint8_t oem_color;       // 0=Amber,1=Blue,2=White
-    float   oem_brightness;  // 0.0..1.0
+    uint8_t oem_color;       /**< OEM color: 0=Amber, 1=Blue, 2=White */
+    float   oem_brightness;  /**< OEM brightness: 0.0..1.0 */
 
-    uint8_t extended_mode;   // 0 = OEM only, 1 = full theme control
-    uint8_t night_mode;      // 0/1
+    uint8_t extended_mode;   /**< Extended mode: 0=OEM only, 1=full theme control */
+    uint8_t night_mode;      /**< Night mode: 0=off, 1=on */
 
-    uint8_t bank_id;         // 0 = from OEM color, 1=Amber,2=Blue,3=White
-    uint8_t theme_index;     // index inside bank
+    uint8_t bank_id;         /**< Bank ID: 0=auto from OEM, 1=Amber, 2=Blue, 3=White */
+    uint8_t theme_index;     /**< Theme index inside bank */
 } amb_can_state_t;
 
+/** @brief Global CAN ambient state (volatile for thread-safety) */
 extern volatile amb_can_state_t g_amb_can;
 
-/* Initialization */
+/**
+ * @brief Initialize CAN ambient system
+ * @param hfdcan Pointer to FDCAN handle (must be initialized)
+ * @details Configures CAN filters, loads settings from flash, initializes state.
+ *          Must be called once at startup.
+ */
 void can_ambient_init(FDCAN_HandleTypeDef *hfdcan);
 
-/* Must be called from FDCAN RX callback */
+/**
+ * @brief Process received CAN message
+ * @param id CAN message ID
+ * @param data Pointer to message data (max 8 bytes)
+ * @param len Message data length
+ * @details Must be called from HAL_FDCAN_RxFifo0Callback. Processes OEM, master,
+ *          sync, extended, and discovery packets.
+ */
 void can_ambient_process_rx(uint32_t id, uint8_t *data, uint8_t len);
 
-/* Called from main loop (after player_tick) */
+/**
+ * @brief Update scene player based on CAN state
+ * @param ws Pointer to WS2812 strip (can be NULL)
+ * @param pl Pointer to scene player
+ * @details Called from main loop after player_tick. Updates theme, brightness,
+ *          and triggers intro/outro transitions.
+ */
 void can_ambient_update(ws2812_t *ws, scene_player_t *pl);
 
-/* Master mode: send current state to slaves */
+/**
+ * @brief Send master packet (master only)
+ * @details Broadcasts full state to all slaves. Sent every 100ms by master.
+ */
 void can_ambient_send_master_packet(void);
 
-/* Send sync/heartbeat packet (master only) */
+/**
+ * @brief Send sync/heartbeat packet (master only)
+ * @details Heartbeat for failover detection. Sent every 250ms by master.
+ */
 void can_ambient_send_sync_packet(void);
 
-/* Send extended sync packet (master only, для синхронизации расширенного режима) */
+/**
+ * @brief Send extended sync packet (master only)
+ * @details Syncs extended mode state. Sent every 250ms when extended mode enabled.
+ */
 void can_ambient_send_ext_packet(void);
 
-/* Send discovery packet (all boards) */
+/**
+ * @brief Send discovery packet (all boards)
+ * @details Announces board presence and role. Sent every 1000ms by all boards.
+ */
 void can_ambient_send_discovery_packet(void);
 
-/* Check if this board is master (can be overridden via GPIO) */
+/**
+ * @brief Check if this board is master
+ * @return 1 if master, 0 if slave
+ * @details Can be overridden via AMB_ROLE_MASTER define or GPIO.
+ */
 uint8_t can_ambient_is_master(void);
 
-/* Update master/slave state (call periodically from main loop) */
+/**
+ * @brief Update master/slave role (periodic call from main loop)
+ * @param now_ms Current time in milliseconds
+ * @details Handles discovery, failover, and automatic role assignment.
+ *          Saves settings to flash if changed.
+ */
 void can_ambient_update_role(uint32_t now_ms);
 
-/* Get last master heartbeat time */
+/**
+ * @brief Get last master heartbeat time
+ * @return Timestamp of last heartbeat in milliseconds
+ * @details Used for failover detection by slaves.
+ */
 uint32_t can_ambient_get_last_master_heartbeat_ms(void);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* CAN_AMBIENT_H */

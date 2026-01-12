@@ -1,8 +1,28 @@
-#pragma once
 /**
- * @file presets.h
- * @brief Theme presets (Mercedes-style ambient themes + OEM banks).
+ ******************************************************************************
+ * @file    presets.h
+ * @brief   Theme presets and configuration for ambient lighting
+ * @details Defines ambient lighting themes organized into banks (Amber, Blue, White).
+ *          Each theme includes effect configuration, palettes, and zone profiles.
+ *
+ * @section Theme System
+ * Themes are organized into banks corresponding to OEM colors:
+ * - Amber Bank: Warm, sunset-inspired themes
+ * - Blue Bank: Cool, ocean-inspired themes
+ * - White Bank: Neutral, crystal-inspired themes
+ *
+ * @section Theme Structure
+ * Each theme (ws_theme_desc_t) defines:
+ * - Main effect and palette
+ * - Theme brightness
+ * - Zone-specific profiles (strip, handle, storage, footwell)
+ *
+ * @version 2.0
+ * @date    2025
+ ******************************************************************************
  */
+
+#pragma once
 
 #include <stdint.h>
 #include "types.h"

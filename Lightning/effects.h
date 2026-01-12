@@ -1,9 +1,26 @@
+/**
+ ******************************************************************************
+ * @file    effects.h
+ * @brief   Visual effects engine for ambient lighting
+ * @details Provides visual effects (FX) for ambient lighting including
+ *          gradient flows, waves, pulses, and one-shot animations for
+ *          intro/outro sequences.
+ *
+ * @section Effects Types
+ * - Continuous effects: Gradient flow, twin wave, ocean flow, etc.
+ * - One-shot effects: Welcome animations, goodbye fade, etc.
+ * - Effects use palettes for color mapping and fx_state_t for runtime state
+ *
+ * @section Usage
+ * - One-shot effects: Use ws_oneshot_start() and ws_oneshot_tick()
+ * - Continuous effects: Use ws_fx_apply() in scene player loop
+ *
+ * @version 2.0
+ * @date    2025
+ ******************************************************************************
+ */
 
 #pragma once
-/**
- * @file effects.h
- * @brief Visual FX for ambient lighting.
- */
 
 #include <stdint.h>
 #include "types.h"

@@ -1,11 +1,25 @@
-#pragma once
 /**
- * @file lighting_features.h
- * @brief Toggle advanced visual features for ambient lighting.
+ ******************************************************************************
+ * @file    features.h
+ * @brief   Feature flags and configuration for ambient lighting
+ * @details Compile-time and runtime feature toggles for advanced lighting
+ *          features including gamma correction, dithering, and night mode.
  *
- * Всё, что можно, включаем через константы.
- * Night Mode — отдельный runtime-флаг.
+ * @section Features
+ * Compile-time features (via defines):
+ * - AMB_ENABLE_GAMMA: Gamma correction for better color accuracy
+ * - AMB_ENABLE_DITHERING: Temporal dithering for smoother gradients
+ * - AMB_ENABLE_ZONE_FX: Enable zone-specific effects
+ *
+ * Runtime features:
+ * - Night mode: Reduces brightness via AMB_NIGHT_BRIGHTNESS_SCALE
+ *
+ * @version 2.0
+ * @date    2025
+ ******************************************************************************
  */
+
+#pragma once
 
 #include <stdint.h>
 

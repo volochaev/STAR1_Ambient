@@ -1,3 +1,30 @@
+/**
+ ******************************************************************************
+ * @file    flash_storage.h
+ * @brief   Flash storage for ambient lighting settings
+ * @details This module provides non-volatile storage for ambient lighting
+ *          settings using the last page of internal Flash memory.
+ *
+ * @section Storage Layout
+ * Uses last 2KB page of Flash (address 0x0801F800).
+ * Data structure includes magic number and CRC32 for integrity checking.
+ *
+ * @section Saved Settings
+ * - extended_mode: Extended mode state (0/1)
+ * - bank_id: Selected theme bank (0-3)
+ * - theme_index: Theme index within bank
+ *
+ * @section Safety
+ * Settings are saved with 2 second delay after last change to minimize
+ * Flash write cycles. Flash has limited write endurance (~10,000 cycles).
+ *
+ * @note Settings are only saved on master board.
+ *
+ * @version 2.2
+ * @date    2025
+ ******************************************************************************
+ */
+
 #ifndef FLASH_STORAGE_H
 #define FLASH_STORAGE_H
 

@@ -1,9 +1,24 @@
+/**
+ ******************************************************************************
+ * @file    frame_utils.h
+ * @brief   Frame manipulation utilities for WS2812 framebuffers
+ * @details Provides helper functions for working with LED framebuffers:
+ *          clearing, filling, copying, mixing, and pixel manipulation.
+ *
+ * @section Frame Operations
+ * - Clearing and filling frames/zones
+ * - Copying frames and zones between strips
+ * - Mixing two frames with alpha blending
+ * - Pixel-level get/set operations
+ *
+ * @note All operations work on GRB format framebuffers
+ *
+ * @version 2.0
+ * @date    2025
+ ******************************************************************************
+ */
 
 #pragma once
-/**
- * @file frame_utils.h
- * @brief Utility helpers for working with ws2812_t GRB frames.
- */
 
 #include <stdint.h>
 #include "driver.h"

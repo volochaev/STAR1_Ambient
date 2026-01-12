@@ -1,3 +1,31 @@
+/**
+ ******************************************************************************
+ * @file    ambient.c
+ * @brief   CAN communication implementation for ambient lighting system
+ * @details Implements master/slave CAN protocol with automatic discovery,
+ *          failover mechanisms, and synchronized theme control.
+ *
+ * @section Architecture
+ * The system uses a master/slave architecture:
+ * - Master board reads OEM CAN packets and broadcasts state to all slaves
+ * - Slaves receive master packets and synchronize their lighting state
+ * - Automatic role discovery based on board type priority
+ * - Failover mechanism if master fails (1 second heartbeat timeout)
+ *
+ * @section CAN Protocol
+ * Uses two CAN IDs:
+ * - 0x351: OEM packets from vehicle (brightness, color)
+ * - 0x353: Unified Master Protocol (discovery, sync, master, extended)
+ *
+ * @section Extended Mode
+ * Extended mode allows manual theme selection. Toggled by 5 color changes
+ * within 3 seconds. Settings are saved to flash memory with 2 second delay.
+ *
+ * @version 2.0
+ * @date    2025
+ ******************************************************************************
+ */
+
 #include "ambient.h"
 #include "palette.h"
 #include "presets.h"

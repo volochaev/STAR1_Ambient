@@ -1,9 +1,26 @@
+/**
+ ******************************************************************************
+ * @file    palette.h
+ * @brief   Color palette system for ambient lighting
+ * @details Provides color palettes inspired by Mercedes-Benz ambient lighting.
+ *          Palettes are defined as gradient stops that can be sampled at
+ *          any position (0.0 to 1.0) to get RGB colors.
+ *
+ * @section Palette System
+ * Palettes consist of color stops (ws_pal_stop_t) with position and RGB values.
+ * Colors are interpolated between stops for smooth gradients.
+ *
+ * @section Available Palettes
+ * - Sunset Amber, Ocean Blue, Red Moon, Purple Silk
+ * - Glacier, Energize, Polar White, Night Blue
+ * - Hyacinth, Copper Gold, Rose
+ *
+ * @version 2.0
+ * @date    2025
+ ******************************************************************************
+ */
 
 #pragma once
-/**
- * @file palette.h
- * @brief Color palettes for ambient lighting (Mercedes-style inspired).
- */
 
 #include <stdint.h>
 

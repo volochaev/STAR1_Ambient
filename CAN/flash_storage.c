@@ -1,3 +1,21 @@
+/**
+ ******************************************************************************
+ * @file    flash_storage.c
+ * @brief   Implementation of flash storage for ambient lighting settings
+ * @details Provides functions to save/load settings from internal Flash memory.
+ *          Uses CRC32 for data integrity checking.
+ *
+ * @section Implementation Notes
+ * - Uses last 2KB page of Flash (address 0x0801F800)
+ * - Erases page before writing (Flash requires erase before write)
+ * - Disables interrupts during Flash operations for safety
+ * - Validates data using magic number and CRC32
+ *
+ * @version 2.2
+ * @date    2025
+ ******************************************************************************
+ */
+
 #include "flash_storage.h"
 #include "main.h"
 #include "stm32g4xx_hal.h"

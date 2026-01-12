@@ -1,3 +1,15 @@
+/**
+ ******************************************************************************
+ * @file    board_door_fl.c
+ * @brief   Front-Left door board implementation
+ * @details Implements hardware initialization and zone mapping for the
+ *          front-left door ambient lighting module.
+ *
+ * @version 2.0
+ * @date    2025
+ ******************************************************************************
+ */
+
 #include "board_door_fl.h"
 #include "main.h"       // htim1
 #include <string.h>

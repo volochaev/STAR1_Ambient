@@ -1,3 +1,14 @@
+/**
+ ******************************************************************************
+ * @file    driver.c
+ * @brief   WS2812B driver implementation
+ * @details Implements PWM+DMA based driver for WS2812B LEDs with double
+ *          buffering, brightness control, and power management.
+ *
+ * @version 2.0
+ * @date    2025
+ ******************************************************************************
+ */
 
 #include "driver.h"
 #include <string.h>

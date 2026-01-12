@@ -1,11 +1,31 @@
-
-#pragma once
 /**
- * @file types.h
- * @brief Common low-level types for LED lighting system.
+ ******************************************************************************
+ * @file    types.h
+ * @brief   Common types and definitions for LED lighting system
+ * @details Defines core data structures and enumerations used throughout
+ *          the ambient lighting system including zones, effects, palettes,
+ *          and scene player states.
+ *
+ * @section Types Overview
+ * - ws_zone_id_t: Logical zone identifiers (strip, handle, storage, footwell)
+ * - fx_id_t: Visual effect identifiers (gradient, wave, pulse, etc.)
+ * - fx_state_t: Runtime state for effects
+ * - oneshot_t: One-shot effect state (intro/outro)
+ * - scene_player_t: Scene player state machine
+ * - player_stage_t: Player stage enumeration (idle, intro, scene, outro)
+ *
+ * @version 2.0
+ * @date    2025
+ ******************************************************************************
  */
 
+#pragma once
+
 #include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Logical zones inside door/ambient module */
 typedef enum {
@@ -94,5 +114,10 @@ typedef struct {
 } scene_player_t;
 
 #ifndef CLAMP01
-#define CLAMP01(x) ((x)<0.0f?0.0f:((x)>1.0f?1.0f:(x)))
+#define CLAMP01(x) ((x)<0.0f?0.0f:((x)>1.0f?1.0f:(x)))  /**< Clamp value to [0.0, 1.0] range */
 #endif
+
+#ifdef __cplusplus
+}
+#endif
+#endif /* TYPES_H */
