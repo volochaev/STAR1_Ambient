@@ -1,4 +1,3 @@
-#define BOARD_DASHBOARD_ACTIVE 1
 #include "board_dashboard.h"
 #include "main.h"       // htim1
 #include <string.h>
@@ -41,9 +40,9 @@ ws2812_t g_dashboard_footwell;
 /* === Маппинг логических зон → физические линии ======================= */
 /* zones.c опирается на g_zone_map[WS_ZONE_*] */
 /* Для dashboard используем: STRIP, HANDLE->CENTER, STORAGE->AC_VENTS, FOOTWELL */
-#if defined(BOARD_DASHBOARD_ACTIVE)
+#if defined(BOARD_TYPE) && BOARD_TYPE == BOARD_TYPE_DASHBOARD
 
-const zone_map_t g_zone_map[WS_ZONE_MAX] = {
+__attribute__((weak)) const zone_map_t g_zone_map[WS_ZONE_MAX] = {
     [WS_ZONE_STRIP] = {
         .ws    = &g_dashboard_strip,
         .first = 0,
@@ -65,7 +64,7 @@ const zone_map_t g_zone_map[WS_ZONE_MAX] = {
         .count = DASHBOARD_FOOTWELL_LEDS,
     },
 };
-#endif /* BOARD_DASHBOARD_ACTIVE */
+#endif /* BOARD_TYPE == BOARD_TYPE_DASHBOARD */
 
 /* === Инициализация ==================================================== */
 

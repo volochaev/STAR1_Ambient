@@ -4,6 +4,8 @@
 "./Boards/board_door_rl.o"
 "./Boards/board_door_rr.o"
 "./Boards/board_rear.o"
+"./CAN/ambient.o"
+"./CAN/flash_storage.o"
 "./Core/Src/main.o"
 "./Core/Src/stm32g4xx_hal_msp.o"
 "./Core/Src/stm32g4xx_it.o"

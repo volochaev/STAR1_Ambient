@@ -87,7 +87,7 @@ void can_ambient_init(FDCAN_HandleTypeDef *hfdcan)
     }
     
     /* Загружаем сохраненные настройки из Flash */
-    flash_storage_load(&g_amb_can);
+    flash_storage_load((amb_can_state_t *)&g_amb_can);
     
     /* Инициализация флагов сохранения */
     g_settings_changed = 0;
@@ -410,22 +410,12 @@ static ws_theme_id_t pick_oem_theme(void)
     oem_color = g_amb_can.oem_color;
     __enable_irq();
     
-    switch (oem_color) {
-    case 0:  // Amber
-        return G_AMBER_THEMES[0];
-    case 1:  // Blue
-        return G_BLUE_THEMES[0];
-    case 2:  // White
-        return G_WHITE_THEMES[0];
-    default:
-        return G_AMBER_THEMES[0];
-    }
+    return ws_theme_default_for_oem((oem_color_id_t)oem_color);
 }
 
 static ws_theme_id_t pick_ext_theme(void)
 {
-    const ws_theme_id_t *bank = NULL;
-    uint8_t count = 0;
+    const ws_theme_bank_t *bank = NULL;
     
     /* Атомарное чтение для защиты от race conditions */
     uint8_t bank_id, oem_color, theme_index;
@@ -436,22 +426,19 @@ static ws_theme_id_t pick_ext_theme(void)
     __enable_irq();
 
     switch (bank_id) {
-    case 1: bank = G_AMBER_THEMES; count = G_AMBER_COUNT; break;
-    case 2: bank = G_BLUE_THEMES;  count = G_BLUE_COUNT;  break;
-    case 3: bank = G_WHITE_THEMES; count = G_WHITE_COUNT; break;
+    case 1: bank = ws_theme_get_bank(OEM_COLOR_AMBER); break;
+    case 2: bank = ws_theme_get_bank(OEM_COLOR_BLUE); break;
+    case 3: bank = ws_theme_get_bank(OEM_COLOR_WHITE); break;
     default: /* auto from OEM color */
-        switch (oem_color) {
-        case 0: bank = G_AMBER_THEMES; count = G_AMBER_COUNT; break;
-        case 1: bank = G_BLUE_THEMES;  count = G_BLUE_COUNT;  break;
-        case 2: bank = G_WHITE_THEMES; count = G_WHITE_COUNT; break;
-        }
+        bank = ws_theme_get_bank((oem_color_id_t)oem_color);
+        break;
     }
 
-    if (!bank || count == 0)
+    if (!bank || !bank->themes || bank->count == 0)
         return 0;
 
-    uint8_t idx = theme_index % count;
-    return bank[idx];
+    uint8_t idx = theme_index % bank->count;
+    return bank->themes[idx];
 }
 
 /* ========== UPDATE PLAYER ========== */
@@ -806,8 +793,7 @@ void can_ambient_send_master_packet(void)
     tx_header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
     tx_header.MessageMarker = 0;
 
-    uint32_t tx_mailbox;
-    HAL_StatusTypeDef status = HAL_FDCAN_AddMessageToTxFifoQ(g_can, &tx_header, tx_data, &tx_mailbox);
+    HAL_StatusTypeDef status = HAL_FDCAN_AddMessageToTxFifoQ(g_can, &tx_header, tx_data);
     (void)status;  /* Игнорируем ошибку - в production можно добавить retry логику */
 }
 
@@ -847,8 +833,7 @@ void can_ambient_send_sync_packet(void)
     tx_header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
     tx_header.MessageMarker = 0;
 
-    uint32_t tx_mailbox;
-    HAL_StatusTypeDef status = HAL_FDCAN_AddMessageToTxFifoQ(g_can, &tx_header, tx_data, &tx_mailbox);
+    HAL_StatusTypeDef status = HAL_FDCAN_AddMessageToTxFifoQ(g_can, &tx_header, tx_data);
     (void)status;  /* Игнорируем ошибку - в production можно добавить retry логику */
 }
 
@@ -891,8 +876,7 @@ void can_ambient_send_ext_packet(void)
     tx_header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
     tx_header.MessageMarker = 0;
 
-    uint32_t tx_mailbox;
-    HAL_StatusTypeDef status = HAL_FDCAN_AddMessageToTxFifoQ(g_can, &tx_header, tx_data, &tx_mailbox);
+    HAL_StatusTypeDef status = HAL_FDCAN_AddMessageToTxFifoQ(g_can, &tx_header, tx_data);
     (void)status;  /* Игнорируем ошибку - в production можно добавить retry логику */
 }
 
@@ -925,7 +909,6 @@ void can_ambient_send_discovery_packet(void)
     tx_header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
     tx_header.MessageMarker = 0;
 
-    uint32_t tx_mailbox;
-    HAL_StatusTypeDef status = HAL_FDCAN_AddMessageToTxFifoQ(g_can, &tx_header, tx_data, &tx_mailbox);
+    HAL_StatusTypeDef status = HAL_FDCAN_AddMessageToTxFifoQ(g_can, &tx_header, tx_data);
     (void)status;  /* Игнорируем ошибку - в production можно добавить retry логику */
 }
