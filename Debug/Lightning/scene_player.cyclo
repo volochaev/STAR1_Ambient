@@ -1,0 +1,6 @@
+../Lightning/scene_player.c:8:14:clamp01f	3
+../Lightning/scene_player.c:15:6:player_init	2
+../Lightning/scene_player.c:30:6:player_start_theme	3
+../Lightning/scene_player.c:45:6:player_start_intro	5
+../Lightning/scene_player.c:60:6:player_start_outro	5
+../Lightning/scene_player.c:75:6:player_tick	12

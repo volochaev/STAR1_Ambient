@@ -1,0 +1,422 @@
+⭐ STAR1 Ambient Project — Full Architecture (Markdown Overview)
+
+v1.0 — Complete System Specification
+
+⸻
+
+📁 1. Project Structure
+
+/Core
+    /Inc
+    /Src
+
+/Lightning
+    types.h
+    palette.h / palette.c
+    effects.h / effects.c
+    zones.h / zones.c
+    scene_player.h / scene_player.c
+    presets.h / presets.c
+    frame_utils.h / frame_utils.c
+    driver.h / driver.c       (WS2812B driver)
+
+/Boards
+    board_template.h
+    board_fl_door.h   / board_fl_door.c   (Front-left door)
+    board_fr_door.h   / board_fr_door.c   (Front-right door)
+    board_rear.h      / board_rear.c      (Rear ambient)
+
+/CAN
+    can_ambient.h / can_ambient.c
+    can_master.h  / can_master.c          <-- master-specific logic
+
+main.c
+
+
+⸻
+
+🎨 2. Lighting Architecture Overview
+
+2.1 Zones
+
+Каждый блок содержит до 4 зон:
+
+Zone ID	Описание
+WS_ZONE_STRIP	Основная длинная линия
+WS_ZONE_HANDLE	Подсветка ручки
+WS_ZONE_STORAGE	Ниша/отделение
+WS_ZONE_FOOTWELL	Подсветка ног
+
+Каждая зона имеет:
+	•	длину LED
+	•	отдельный цвет/палитру
+	•	своё поведение в intro/outro
+	•	свой brightness scale
+
+⸻
+
+2.2 Palette System
+
+Палитра = набор цветовых стопов:
+
+typedef struct {
+    float pos;    // 0..1
+    uint8_t r,g,b;
+} ws_pal_stop_t;
+
+Палитры используются в темах и эффектах.
+
+⸻
+
+2.3 Effects (FX Engine)
+
+Однократные (oneshot):
+	•	FX_WELCOME_MB       (двойная волна, EQS-стиль)
+	•	FX_WELCOME_CENTER   (классический центр-out)
+	•	FX_GOODBYE_FADE
+	•	FX_GOODBYE_MB       (S-Class style outro)
+
+Постоянные (scene effects):
+	•	FX_GRADIENT_FLOW
+	•	FX_TWIN_WAVE
+	•	FX_AMBIENT_PULSE
+	•	FX_MB_RIVER
+	•	FX_MB_SOFT_GLOW
+	•	FX_DUAL_ZONE_FLOW
+и т.д.
+
+⸻
+
+2.4 Scene Player (lighting state machine)
+
+Состояния:
+	•	PST_IDLE
+	•	PST_INTRO (oneshot)
+	•	PST_BRIDGE (transition frame)
+	•	PST_SCENE (infinite theme)
+	•	PST_OUTRO (oneshot → idle)
+
+Переходы:
+
+start → INTRO → BRIDGE → SCENE → OUTRO → IDLE
+
+Player отвечает за:
+	•	яркость (calc_brightness)
+	•	night-mode
+	•	fade-переходы всех зон
+	•	плавность смены тем
+
+⸻
+
+🎛 3. WS2812 Driver
+
+Использует:
+	•	TIM1 CH1-CH4 PWM + DMA
+	•	частота 800 kHz
+	•	буфер формата GRB
+	•	ws_render() передаёт кадр в DMA каждого канала
+
+Возможность до 4 независимых зон.
+
+⸻
+
+🚗 4. CAN System — Production Grade
+
+✅ **РЕАЛИЗОВАНО** — Production архитектура CAN с отказоустойчивостью.
+
+⸻
+
+🧠 4.1 Общая CAN-идея
+
+Система = несколько блоков (FL, FR, Rear и др.)
+Все висят на одном и том же автомобильном CAN.
+
+Появляются 2 роли:
+
+Роль	Функция
+MASTER	Один из блоков (автоматически определяется), читает CAN от машины, управляет системой, отправляет команды
+SLAVE	Остальные блоки принимают команды от master и синхронизируют состояние
+
+⸻
+
+💡 Почему мастер нужен?
+
+Потому что:
+	•	OEM пакет (0x351) слишком бедный (3 цвета, 6 яркостей)
+	•	Банк (Amber/Blue/White) одинаков у всех
+	•	Но выбор темы внутри банка должен быть 100% одинаковым
+	•	Иначе блоки могут "разойтись" на разные темы
+
+Поэтому Extended control должен приходить от одного конкретного источника (master).
+
+⸻
+
+🏁 4.2 Определение мастера (автоматическое + отказоустойчивость)
+
+✅ **РЕАЛИЗОВАНО** — Все блоки имеют одну и ту же прошивку.
+Master определяется автоматически, без DIP-переключателей.
+
+**Алгоритм:**
+
+1. **Discovery механизм:**
+   - Каждый блок каждые 1000 ms отправляет discovery пакет (ID 0x353):
+     ```
+     ID 0x353 DLC=8
+     Byte0 = BOARD_TYPE (0=FL, 1=FR, 2=REAR)
+     Byte1-4 = unique_id (уникальный номер платы)
+     Byte5 = текущая роль (0=slave, 1=master)
+     ```
+
+2. **Приоритеты плат:**
+   - FL (Front-Left) — наивысший приоритет
+   - FR (Front-Right) — средний приоритет  
+   - REAR — низший приоритет
+   - Master выбирается автоматически по приоритету
+
+3. **Heartbeat механизм:**
+   - Master отправляет sync пакет (ID 0x354) каждые 250 ms
+   - Slave отслеживают время последнего heartbeat
+   - Если master не отвечает более 1 секунды → **автоматический failover**
+
+4. **Отказоустойчивость:**
+   - Если master плата перестала работать, slave с наивысшим приоритетом автоматически берет на себя роль master
+   - При восстановлении master плата с более высоким приоритетом автоматически становится master
+   - Система продолжает работать даже при отказе одной из плат
+
+⸻
+
+🎮 4.3 CAN IDs
+
+ID	Описание	Отправитель
+0x351	OEM ambient from IC (яркость, цвет)	Машина → Все
+0x352	Extended Ambient Control	Машина → Все (опционально)
+0x353	Master packet / Discovery packet	Master → Slaves / Все → Все
+0x354	Sync/Heartbeat packet	Master → Slaves
+
+⸻
+
+📦 4.4 Формат 0x353 — Master Packet (от master к slaves)
+
+ID 0x353 DLC=8
+
+Byte0: flags
+   bit0 = EXTENDED_MODE
+   bit1 = NIGHT_MODE
+   bit2-7 = reserved
+
+Byte1: bank_id
+   0 = auto from OEM color
+   1 = amber bank
+   2 = blue bank
+   3 = white bank
+
+Byte2: theme_index (индекс темы в банке)
+
+Byte3: oem_color (0=Amber, 1=Blue, 2=White)
+
+Byte4: brightness_raw (0..5, соответствует яркости OEM)
+
+Byte5-7: reserved
+
+**Отправляется:** Master каждые 100 мс при изменении состояния
+
+⸻
+
+📦 4.5 Формат 0x353 — Discovery Packet (от всех плат)
+
+ID 0x353 DLC=8
+
+Byte0: BOARD_TYPE (0=FL, 1=FR, 2=REAR)
+
+Byte1-4: unique_id (уникальный идентификатор платы)
+
+Byte5: текущая роль (0=slave, 1=master)
+
+Byte6-7: reserved
+
+**Отправляется:** Все платы каждые 1000 мс
+
+⸻
+
+🔄 4.6 Sync пакет 0x354 (Heartbeat)
+
+ID 0x354 DLC=8
+
+Byte0: bank_id (0..3)
+
+Byte1: theme_index
+
+Byte2-7: reserved
+
+**Отправляется:** Master каждые 250 ms
+
+**Назначение:**
+- Heartbeat для отслеживания работоспособности master
+- Дополнительная синхронизация состояния
+- Если пакет пропал более чем на 1 секунду → slave становится новым master
+
+⸻
+
+🗂 4.7 can_ambient.c — Реализованные функции
+
+**Master режим:**
+- Читает CAN от машины (0x351, 0x352)
+- Обрабатывает команды и управляет системой
+- Отправляет master пакет (0x353) каждые 100 мс
+- Отправляет sync пакет (0x354) каждые 250 мс
+- Отправляет discovery пакет (0x353) каждые 1000 мс
+
+**Slave режим:**
+- Читает master пакеты (0x353) от master
+- Читает sync пакеты (0x354) для отслеживания heartbeat
+- Отправляет discovery пакет (0x353) каждые 1000 мс
+- Применяет темы и яркость из master пакетов
+- Автоматически переходит в master режим при отказе master
+
+**Общие функции:**
+- `can_ambient_init()` — инициализация CAN с фильтрами
+- `can_ambient_process_rx()` — обработка входящих пакетов
+- `can_ambient_update()` — обновление состояния ambient системы
+- `can_ambient_update_role()` — обновление роли master/slave (discovery + failover)
+- `can_ambient_is_master()` — проверка текущей роли
+- `can_ambient_send_master_packet()` — отправка master пакета
+- `can_ambient_send_sync_packet()` — отправка sync пакета
+- `can_ambient_send_discovery_packet()` — отправка discovery пакета
+
+⸻
+
+⚙️ 5. Производственный (production) поток данных
+
+**Инициализация:**
+1. Все платы стартуют и отправляют discovery пакеты (0x353)
+2. Плата с наивысшим приоритетом (FL) автоматически становится master
+3. Master начинает отправлять sync пакеты (0x354) каждые 250 мс
+
+**Нормальная работа:**
+```
+[IC → 0x351] → все блоки → обновляют OEM яркость и цвет
+
+Master:
+    - читает CAN от машины (0x351, опционально 0x352)
+    - вычисляет (bank, theme_index, brightness)
+    - отправляет 0x353 (master packet) → все блоки каждые 100 мс
+    - отправляет 0x354 (sync/heartbeat) → все блоки каждые 250 мс
+    - отправляет 0x353 (discovery) → все блоки каждые 1000 мс
+
+Slave:
+    - читают 0x353 (master packet) от master
+    - читают 0x354 (sync) для отслеживания heartbeat
+    - применяют bank/theme/brightness из master пакетов
+    - отправляют 0x353 (discovery) → все блоки каждые 1000 мс
+
+Lighting engine:
+    - выполняет intro/scene/outro на всех платах синхронно
+```
+
+**Failover (отказоустойчивость):**
+1. Master перестает отвечать (нет sync пакетов > 1 сек)
+2. Slave с наивысшим приоритетом обнаруживает timeout
+3. Slave автоматически переходит в master режим
+4. Новый master начинает отправлять пакеты
+5. При восстановлении старого master, он автоматически возвращает роль (если имеет более высокий приоритет)
+
+⸻
+
+🗺 6. End-to-end работа системы
+
+**OEM режим (машина управляет):**
+- Car отправляет: цвет/яркость (0x351)
+- Master читает 0x351 и выбирает дефолтную тему для банка
+- Master отправляет 0x353 с текущим состоянием
+- Все блоки синхронизируются и применяют одинаковую тему
+
+**Extended режим:**
+- Master читает расширенные команды (0x352) или использует локальный UI
+- Master вычисляет bank/theme_index
+- Master отправляет 0x353 с новым состоянием
+- Все блоки ставят ту же тему синхронно
+- Далее каждые 250 мс → 0x354 синхронизация (heartbeat)
+
+**Отказоустойчивость:**
+- Если master плата перестала работать:
+  - Slave обнаруживает отсутствие sync пакетов (> 1 сек)
+  - Slave с наивысшим приоритетом автоматически становится master
+  - Система продолжает работать без прерываний
+  - При восстановлении master автоматически возвращается роль
+
+⸻
+
+🧱 7. Структура файлов CAN
+
+/CAN
+    ambient.h / ambient.c     ✅ Реализовано
+        - Инициализация CAN с фильтрами
+        - Обработка OEM пакетов (0x351)
+        - Обработка Extended пакетов (0x352)
+        - Обработка Master пакетов (0x353)
+        - Обработка Sync пакетов (0x354)
+        - Обработка Discovery пакетов (0x353)
+        - Отправка master/sync/discovery пакетов
+        - Автоматическое определение master/slave
+        - Отказоустойчивость (failover)
+        - Обновление состояния ambient системы
+
+/Boards
+    board_door_fl.h / board_door_fl.c    ✅ Реализовано
+        - Определение BOARD_TYPE для discovery
+        - Конфигурация LED лент и зон
+        - Инициализация драйвера WS2812
+
+⸻
+
+⚙️ 8. Настройка плат
+
+**Для каждой платы необходимо определить BOARD_TYPE:**
+
+```c
+// board_door_fl.h
+#define BOARD_TYPE  BOARD_TYPE_FL
+
+// board_door_fr.h  
+#define BOARD_TYPE  BOARD_TYPE_FR
+
+// board_rear.h
+#define BOARD_TYPE  BOARD_TYPE_REAR
+```
+
+**Опционально - принудительная установка роли:**
+
+```c
+// Для принудительного master режима:
+#define AMB_ROLE_MASTER  1
+
+// Для принудительного slave режима:
+#define AMB_ROLE_MASTER  0
+
+// Для автоматического определения (по умолчанию):
+// не определять AMB_ROLE_MASTER вообще
+```
+
+⸻
+
+🔥 9. Статус реализации
+
+✅ **Готово:**
+
+- ✔ Lighting system (scene_player, zones, effects, palette)
+- ✔ Multi-zone controller through TIM1 DMA
+- ✔ Preset themes (страницы темы, банки)
+- ✔ CAN система с master/slave режимом
+- ✔ Автоматическое определение master через discovery
+- ✔ Отказоустойчивость (failover при отказе master)
+- ✔ Heartbeat механизм (sync пакеты)
+- ✔ Приоритеты плат (FL > FR > REAR)
+- ✔ Синхронизация состояния между платами
+
+**Особенности реализации:**
+
+- Все платы используют одинаковую прошивку
+- Роль master/slave определяется автоматически
+- Система продолжает работать при отказе одной из плат
+- Автоматическое восстановление при восстановлении master
+- Не требует ручной настройки или DIP-переключателей

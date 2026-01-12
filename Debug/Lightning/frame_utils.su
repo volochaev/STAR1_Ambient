@@ -1,0 +1,11 @@
+../Lightning/frame_utils.c:5:14:clamp01f	16	static
+../Lightning/frame_utils.c:12:24:px3	16	static
+../Lightning/frame_utils.c:14:6:frame_clear	16	static
+../Lightning/frame_utils.c:20:6:frame_fill	24	static
+../Lightning/frame_utils.c:32:6:frame_fill_zone	40	static
+../Lightning/frame_utils.c:49:6:frame_copy	24	static
+../Lightning/frame_utils.c:56:6:frame_copy_zone	32	static
+../Lightning/frame_utils.c:74:6:frame_mix	56	static
+../Lightning/frame_utils.c:93:6:frame_mix_zone	56	static
+../Lightning/frame_utils.c:123:6:frame_set_pixel	24	static
+../Lightning/frame_utils.c:134:6:frame_get_pixel	32	static

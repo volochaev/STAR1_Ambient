@@ -1,0 +1,4 @@
+../Lightning/presets.c:644:24:ws_theme_get	16	static
+../Lightning/presets.c:703:24:ws_theme_get_bank	24	static
+../Lightning/presets.c:715:15:ws_theme_bank_next	24	static
+../Lightning/presets.c:733:15:ws_theme_default_for_oem	24	static

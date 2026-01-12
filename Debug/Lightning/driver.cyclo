@@ -1,0 +1,12 @@
+../Lightning/driver.c:7:14:clamp01f	3
+../Lightning/driver.c:14:21:ws_effective_brightness	2
+../Lightning/driver.c:20:17:channel_to_active_flag	5
+../Lightning/driver.c:31:13:pack_into	17
+../Lightning/driver.c:78:6:ws_init	7
+../Lightning/driver.c:112:6:ws_set_global_brightness	2
+../Lightning/driver.c:118:6:ws_force_brightness	2
+../Lightning/driver.c:125:6:ws_release_brightness	2
+../Lightning/driver.c:131:6:ws_render	7
+../Lightning/driver.c:154:6:ws_dma_tc_isr	7
+../Lightning/driver.c:180:6:ws_power_set	2
+../Lightning/driver.c:197:9:ws_is_power_on	1
