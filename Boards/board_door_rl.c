@@ -1,3 +1,4 @@
+#define BOARD_DOOR_RL_ACTIVE 1
 #include "board_door_rl.h"
 #include "main.h"       // htim1
 #include <string.h>
@@ -39,6 +40,7 @@ ws2812_t g_rl_footwell;
 
 /* === Маппинг логических зон → физические линии ======================= */
 /* zones.c опирается на g_zone_map[WS_ZONE_*] */
+#if defined(BOARD_DOOR_RL_ACTIVE)
 
 const zone_map_t g_zone_map[WS_ZONE_MAX] = {
     [WS_ZONE_STRIP] = {
@@ -62,6 +64,7 @@ const zone_map_t g_zone_map[WS_ZONE_MAX] = {
         .count = RL_FOOTWELL_LEDS,
     },
 };
+#endif /* BOARD_DOOR_RL_ACTIVE */
 
 /* === Инициализация ==================================================== */
 

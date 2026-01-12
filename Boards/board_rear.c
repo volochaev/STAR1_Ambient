@@ -1,3 +1,4 @@
+#define BOARD_REAR_ACTIVE 1
 #include "board_rear.h"
 #include "main.h"       // htim1
 #include <string.h>
@@ -39,6 +40,7 @@ ws2812_t g_rear_footwell;
 
 /* === Маппинг логических зон → физические линии ======================= */
 /* zones.c опирается на g_zone_map[WS_ZONE_*] */
+#if defined(BOARD_REAR_ACTIVE)
 
 const zone_map_t g_zone_map[WS_ZONE_MAX] = {
     [WS_ZONE_STRIP] = {
@@ -62,6 +64,7 @@ const zone_map_t g_zone_map[WS_ZONE_MAX] = {
         .count = REAR_FOOTWELL_LEDS,
     },
 };
+#endif /* BOARD_REAR_ACTIVE */
 
 /* === Инициализация ==================================================== */
 

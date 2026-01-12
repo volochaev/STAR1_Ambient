@@ -56,6 +56,4 @@ void board_fl_led_render_all(void);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif /* BOARD_DOOR_FL_H */

@@ -349,9 +349,8 @@ int main(void)
 				last_sync_send_ms = now;
 			}
 
-			// Extended packet каждые 250мс (если extended режим включен)
-			extern amb_can_state_t g_amb_can;
-			if (g_amb_can.extended_mode && (now - last_ext_send_ms) >= 250u) {
+		// Extended packet каждые 250мс (если extended режим включен)
+		if (g_amb_can.extended_mode && (now - last_ext_send_ms) >= 250u) {
 				can_ambient_send_ext_packet();
 				last_ext_send_ms = now;
 			}

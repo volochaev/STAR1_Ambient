@@ -119,5 +119,4 @@ typedef struct {
 
 #ifdef __cplusplus
 }
-#endif
 #endif /* TYPES_H */
