@@ -409,28 +409,28 @@ static const ws_theme_desc_t G_THEMES[THEME_MAX_] = {
 
 	    .zone = {
 	        [WS_ZONE_STRIP] = {
-	            FX_MB_OCEAN_FLOW,
-	            WSPAL_MB_NIGHT_BLUE,
-	            1.00f,
-	            0.35f
+	            .fx             = FX_MB_OCEAN_FLOW,
+	            .pal_id         = WSPAL_MB_NIGHT_BLUE,
+	            .rel_brightness = 1.00f,
+	            .accent_u       = 0.35f
 	        },
 	        [WS_ZONE_HANDLE] = {
-	            FX_MB_SOFT_BREATHE,
-	            WSPAL_MB_NIGHT_BLUE,
-	            0.38f,
-	            0.55f
+	            .fx             = FX_MB_SOFT_BREATHE,
+	            .pal_id         = WSPAL_MB_NIGHT_BLUE,
+	            .rel_brightness = 0.38f,
+	            .accent_u       = 0.55f
 	        },
 	        [WS_ZONE_STORAGE] = {
-	            FX_MB_SOFT_SOLID,
-	            WSPAL_MB_NIGHT_BLUE,
-	            0.22f,
-	            0.50f
+	            .fx             = FX_MB_SOFT_SOLID,
+	            .pal_id         = WSPAL_MB_NIGHT_BLUE,
+	            .rel_brightness = 0.22f,
+	            .accent_u       = 0.50f
 	        },
 	        [WS_ZONE_FOOTWELL] = {
-	            FX_MB_FLOW_SOFT,
-	            WSPAL_MB_NIGHT_BLUE,
-	            0.30f,
-	            0.70f
+	            .fx             = FX_MB_FLOW_SOFT,
+	            .pal_id         = WSPAL_MB_NIGHT_BLUE,
+	            .rel_brightness = 0.30f,
+	            .accent_u       = 0.70f
 	        },
 	    },
 	},
@@ -443,28 +443,28 @@ static const ws_theme_desc_t G_THEMES[THEME_MAX_] = {
 
 	    .zone = {
 	        [WS_ZONE_STRIP] = {
-	            FX_MB_TWO_TONE_WAVE,
-	            WSPAL_MB_HYACINTH,
-	            1.00f,
-	            0.50f
+	            .fx             = FX_MB_TWO_TONE_WAVE,
+	            .pal_id         = WSPAL_MB_HYACINTH,
+	            .rel_brightness = 1.00f,
+	            .accent_u       = 0.50f
 	        },
 	        [WS_ZONE_HANDLE] = {
-	            FX_MB_SOFT_BREATHE,
-	            WSPAL_MB_HYACINTH,
-	            0.40f,
-	            0.55f
+	            .fx             = FX_MB_SOFT_BREATHE,
+	            .pal_id         = WSPAL_MB_HYACINTH,
+	            .rel_brightness = 0.40f,
+	            .accent_u       = 0.55f
 	        },
 	        [WS_ZONE_STORAGE] = {
-	            FX_MB_SOFT_SOLID,
-	            WSPAL_MB_HYACINTH,
-	            0.22f,
-	            0.50f
+	            .fx             = FX_MB_SOFT_SOLID,
+	            .pal_id         = WSPAL_MB_HYACINTH,
+	            .rel_brightness = 0.22f,
+	            .accent_u       = 0.50f
 	        },
 	        [WS_ZONE_FOOTWELL] = {
-	            FX_MB_FLOW_SOFT,
-	            WSPAL_MB_HYACINTH,
-	            0.28f,
-	            0.75f
+	            .fx             = FX_MB_FLOW_SOFT,
+	            .pal_id         = WSPAL_MB_HYACINTH,
+	            .rel_brightness = 0.28f,
+	            .accent_u       = 0.75f
 	        },
 	    },
 	},
@@ -477,28 +477,28 @@ static const ws_theme_desc_t G_THEMES[THEME_MAX_] = {
 
 	    .zone = {
 	        [WS_ZONE_STRIP] = {
-	            FX_GRADIENT_FLOW,
-	            WSPAL_MB_COPPER_GOLD,
-	            1.00f,
-	            0.45f
+	            .fx             = FX_GRADIENT_FLOW,
+	            .pal_id         = WSPAL_MB_COPPER_GOLD,
+	            .rel_brightness = 1.00f,
+	            .accent_u       = 0.45f
 	        },
 	        [WS_ZONE_HANDLE] = {
-	            FX_MB_SOFT_BREATHE,
-	            WSPAL_MB_COPPER_GOLD,
-	            0.45f,
-	            0.55f
+	            .fx             = FX_MB_SOFT_BREATHE,
+	            .pal_id         = WSPAL_MB_COPPER_GOLD,
+	            .rel_brightness = 0.45f,
+	            .accent_u       = 0.55f
 	        },
 	        [WS_ZONE_STORAGE] = {
-	            FX_MB_SOFT_SOLID,
-	            WSPAL_MB_COPPER_GOLD,
-	            0.25f,
-	            0.50f
+	            .fx             = FX_MB_SOFT_SOLID,
+	            .pal_id         = WSPAL_MB_COPPER_GOLD,
+	            .rel_brightness = 0.25f,
+	            .accent_u       = 0.50f
 	        },
 	        [WS_ZONE_FOOTWELL] = {
-	            FX_MB_SOFT_SOLID,
-	            WSPAL_MB_COPPER_GOLD,
-	            0.30f,
-	            0.70f
+	            .fx             = FX_MB_SOFT_SOLID,
+	            .pal_id         = WSPAL_MB_COPPER_GOLD,
+	            .rel_brightness = 0.30f,
+	            .accent_u       = 0.70f
 	        },
 	    },
 	},
@@ -511,28 +511,28 @@ static const ws_theme_desc_t G_THEMES[THEME_MAX_] = {
 
 	    .zone = {
 	        [WS_ZONE_STRIP] = {
-	            FX_MB_OCEAN_FLOW,
-	            WSPAL_MB_ROSE,
-	            1.00f,
-	            0.45f
+	            .fx             = FX_MB_OCEAN_FLOW,
+	            .pal_id         = WSPAL_MB_ROSE,
+	            .rel_brightness = 1.00f,
+	            .accent_u       = 0.45f
 	        },
 	        [WS_ZONE_HANDLE] = {
-	            FX_MB_SOFT_BREATHE,
-	            WSPAL_MB_ROSE,
-	            0.38f,
-	            0.55f
+	            .fx             = FX_MB_SOFT_BREATHE,
+	            .pal_id         = WSPAL_MB_ROSE,
+	            .rel_brightness = 0.38f,
+	            .accent_u       = 0.55f
 	        },
 	        [WS_ZONE_STORAGE] = {
-	            FX_MB_SOFT_SOLID,
-	            WSPAL_MB_ROSE,
-	            0.22f,
-	            0.50f
+	            .fx             = FX_MB_SOFT_SOLID,
+	            .pal_id         = WSPAL_MB_ROSE,
+	            .rel_brightness = 0.22f,
+	            .accent_u       = 0.50f
 	        },
 	        [WS_ZONE_FOOTWELL] = {
-	            FX_MB_FLOW_SOFT,
-	            WSPAL_MB_ROSE,
-	            0.28f,
-	            0.75f
+	            .fx             = FX_MB_FLOW_SOFT,
+	            .pal_id         = WSPAL_MB_ROSE,
+	            .rel_brightness = 0.28f,
+	            .accent_u       = 0.75f
 	        },
 	    },
 	},

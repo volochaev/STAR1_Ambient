@@ -21,7 +21,18 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "board_door_fl.h"
+/* 
+ * ВАЖНО: Включите нужный board файл для вашей платы!
+ * Раскомментируйте одну из строк ниже в зависимости от типа платы:
+ */
+#include "board_door_fl.h"      // Front-Left door
+// #include "board_door_fr.h"   // Front-Right door
+// #include "board_door_rl.h"   // Rear-Left door
+// #include "board_door_rr.h"   // Rear-Right door
+// #include "board_dashboard.h" // Dashboard/Instrument Panel
+// #include "board_rear.h"      // Rear ambient
+
+/* Каждый board_xxx.h автоматически определяет BOARD_TYPE */
 #include "scene_player.h"
 #include "presets.h"
 #include "zones.h"
@@ -35,6 +46,12 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+/* Демо режим: автоматическое переключение тем каждые 20 секунд (только для master) */
+/* Установите в 0 для продакшн режима (управление только через CAN) */
+#ifndef DEMO_MODE
+#define DEMO_MODE  0  /* 0 = production mode, 1 = demo mode */
+#endif
 
 /* USER CODE END PD */
 
@@ -59,7 +76,7 @@ ws_theme_id_t g_current_theme;      // текущая тема
 oem_color_id_t g_oem_color;          // текущий "OEM цвет" (amber/blue/white)
 
 uint32_t g_last_tick_ms = 0;   // для delta_ms в player_tick
-uint32_t g_last_theme_switch_ms = 0;  // когда последний раз меняли тему
+uint32_t g_last_theme_switch_ms = 0;  // когда последний раз меняли тему (для демо режима)
 
 /* USER CODE END PV */
 
@@ -75,6 +92,107 @@ static void MX_FDCAN1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/**
+ * @brief Получить указатель на главную strip для текущего board
+ * @return Указатель на главную ws2812_t strip
+ */
+static ws2812_t* get_main_strip(void)
+{
+#if (BOARD_TYPE == BOARD_TYPE_FL)
+    extern ws2812_t g_fl_strip;
+    return &g_fl_strip;
+#elif (BOARD_TYPE == BOARD_TYPE_FR)
+    extern ws2812_t g_fr_strip;
+    return &g_fr_strip;
+#elif (BOARD_TYPE == BOARD_TYPE_RL)
+    extern ws2812_t g_rl_strip;
+    return &g_rl_strip;
+#elif (BOARD_TYPE == BOARD_TYPE_RR)
+    extern ws2812_t g_rr_strip;
+    return &g_rr_strip;
+#elif (BOARD_TYPE == BOARD_TYPE_DASHBOARD)
+    extern ws2812_t g_dashboard_strip;
+    return &g_dashboard_strip;
+#elif (BOARD_TYPE == BOARD_TYPE_REAR)
+    extern ws2812_t g_rear_strip;
+    return &g_rear_strip;
+#else
+    return NULL;
+#endif
+}
+
+/**
+ * @brief Инициализация board LED системы
+ */
+static void board_led_init(void)
+{
+#if (BOARD_TYPE == BOARD_TYPE_FL)
+    board_fl_led_init();
+#elif (BOARD_TYPE == BOARD_TYPE_FR)
+    board_fr_led_init();
+#elif (BOARD_TYPE == BOARD_TYPE_RL)
+    board_rl_led_init();
+#elif (BOARD_TYPE == BOARD_TYPE_RR)
+    board_rr_led_init();
+#elif (BOARD_TYPE == BOARD_TYPE_DASHBOARD)
+    board_dashboard_led_init();
+#elif (BOARD_TYPE == BOARD_TYPE_REAR)
+    board_rear_led_init();
+#endif
+}
+
+/**
+ * @brief Рендеринг всех LED зон текущего board
+ */
+static void board_led_render_all(void)
+{
+#if (BOARD_TYPE == BOARD_TYPE_FL)
+    board_fl_led_render_all();
+#elif (BOARD_TYPE == BOARD_TYPE_FR)
+    board_fr_led_render_all();
+#elif (BOARD_TYPE == BOARD_TYPE_RL)
+    board_rl_led_render_all();
+#elif (BOARD_TYPE == BOARD_TYPE_RR)
+    board_rr_led_render_all();
+#elif (BOARD_TYPE == BOARD_TYPE_DASHBOARD)
+    board_dashboard_led_render_all();
+#elif (BOARD_TYPE == BOARD_TYPE_REAR)
+    board_rear_led_render_all();
+#endif
+}
+
+/**
+ * @brief Демо режим: автоматическое переключение тем (только для master)
+ * @param now_ms Текущее время в миллисекундах
+ * @note Вызывается только если DEMO_MODE == 1 и плата является master
+ */
+static void demo_mode_update(uint32_t now_ms)
+{
+#if DEMO_MODE
+    if (!can_ambient_is_master()) {
+        return;  // Демо режим работает только на master
+    }
+
+    // Переключение темы раз в 20 секунд
+    if ((now_ms - g_last_theme_switch_ms) > 20000u) {
+        ws2812_t *main_strip = get_main_strip();
+        if (main_strip) {
+            const ws_theme_bank_t *bank = ws_theme_get_bank(g_oem_color);
+            if (bank) {
+                ws_theme_id_t next = ws_theme_bank_next(bank, g_current_theme);
+                g_current_theme = next;
+
+                player_start_theme(main_strip, &g_player, g_current_theme);
+                player_start_intro(main_strip, &g_player); // мягкий вход в новую тему
+            }
+        }
+        g_last_theme_switch_ms = now_ms;
+    }
+#else
+    (void)now_ms;  // Suppress unused parameter warning
+#endif
+}
 
 /* USER CODE END 0 */
 
@@ -112,13 +230,11 @@ int main(void)
   MX_FDCAN1_Init();
   /* USER CODE BEGIN 2 */
 
-	// 1) Инициализируем борд (TIM1 + все ws2812_t, зоны, питание выкл)
-	board_fl_led_init();   // если имя другое — подставь своё
+	// 1) Инициализируем board (TIM1 + все ws2812_t, зоны, питание выкл)
+	board_led_init();
 
-	// 2) Выбираем "OEM цвет" (для теста: Amber)
+	// 2) Выбираем стартовый "OEM цвет" (будет обновляться через CAN)
 	g_oem_color = OEM_COLOR_AMBER;
-//	g_oem_color = OEM_COLOR_BLUE;
-//	g_oem_color = OEM_COLOR_WHITE;
 
 	// 3) Стартовая тема = дефолтная для этого OEM-цвета
 	g_current_theme = ws_theme_default_for_oem(g_oem_color);
@@ -127,13 +243,15 @@ int main(void)
 	player_init(&g_player, g_current_theme);
 
 	// 5) Запускаем welcome-интро по главной ленте
-	extern ws2812_t g_fl_strip;    // объявлен в board_door_fl.c
-	player_start_intro(&g_fl_strip, &g_player);
+	ws2812_t *main_strip = get_main_strip();
+	if (main_strip) {
+		player_start_intro(main_strip, &g_player);
+	}
 
 	g_last_tick_ms = HAL_GetTick();
 	g_last_theme_switch_ms = g_last_tick_ms;
 
-	// Инициализация CAN ambient системы
+	// 6) Инициализация CAN ambient системы
 	can_ambient_init(&hfdcan1);
 
   /* USER CODE END 2 */
@@ -146,25 +264,23 @@ int main(void)
     /* USER CODE BEGIN 3 */
 		uint32_t now = HAL_GetTick();
 		uint32_t dt = now - g_last_tick_ms;
+		
+		// Защита от переполнения dt (если система была в sleep или произошел сбой)
+		if (dt > 1000u) {
+			dt = 16u;  // Максимальный разумный dt для анимаций (~60 FPS)
+		}
+		
 		g_last_tick_ms = now;
 
-		// Переключение темы раз в 20 сек — только для master и только если нет CAN команд
-		// Для slave все управление идет через CAN от master
-		if (can_ambient_is_master() && (now - g_last_theme_switch_ms) > 20000u) {
-			// Автоматическое переключение как fallback, если нет команд от CAN
-			// (можно отключить, если все управление идет через CAN)
-			const ws_theme_bank_t *bank = ws_theme_get_bank(g_oem_color);
-			if (bank) {
-				ws_theme_id_t next = ws_theme_bank_next(bank, g_current_theme);
-				g_current_theme = next;
+		ws2812_t *main_strip = get_main_strip();
 
-				player_start_theme(&g_fl_strip, &g_player, g_current_theme);
-				player_start_intro(&g_fl_strip, &g_player); // мягкий вход в новую тему
-			}
-			g_last_theme_switch_ms = now;
+		// Демо режим: автоматическое переключение тем (только если DEMO_MODE == 1)
+		demo_mode_update(now);
+
+		// Обновляем player (главная strip)
+		if (main_strip) {
+			player_tick(main_strip, &g_player, dt);
 		}
-
-		player_tick(&g_fl_strip, &g_player, dt);
 
 		float t_norm = 0.0f;
 
@@ -172,8 +288,8 @@ int main(void)
 		case PST_INTRO:
 		{
 		    // прогресс intro: используем oneshot.intro.{start_ms,duration_ms}
-		    uint32_t now_ms   = HAL_GetTick();
-		    uint32_t elapsed  = now_ms - g_player.intro.start_ms;
+		    // Используем уже вычисленное now вместо повторного вызова HAL_GetTick()
+		    uint32_t elapsed  = now - g_player.intro.start_ms;
 		    uint32_t duration = g_player.intro.duration_ms ? g_player.intro.duration_ms : 1u;
 		    if (elapsed > duration) elapsed = duration;
 		    t_norm = (float)elapsed / (float)duration;
@@ -188,8 +304,8 @@ int main(void)
 
 		case PST_OUTRO:
 		{
-		    uint32_t now_ms   = HAL_GetTick();
-		    uint32_t elapsed  = now_ms - g_player.outro.start_ms;
+		    // Используем уже вычисленное now вместо повторного вызова HAL_GetTick()
+		    uint32_t elapsed  = now - g_player.outro.start_ms;
 		    uint32_t duration = g_player.outro.duration_ms ? g_player.outro.duration_ms : 1u;
 		    if (elapsed > duration) elapsed = duration;
 		    t_norm = (float)elapsed / (float)duration;
@@ -203,24 +319,57 @@ int main(void)
 		    break;
 		}
 
-		// Отправляем остальные зоны на ленты
-		board_fl_led_render_all();          // ws_render для handle/storage/footwell
+		// Отправляем все зоны на ленты (рендеринг всех LED)
+		board_led_render_all();
 
-		// Обновляем ambient систему из CAN
-		extern ws2812_t g_fl_strip;
-		can_ambient_update(&g_fl_strip, &g_player);
+		// Обновляем ambient систему из CAN (синхронизация тем и яркости)
+		if (main_strip) {
+			can_ambient_update(main_strip, &g_player);
+		}
 
 		// Обновляем роль master/slave (discovery и failover)
 		can_ambient_update_role(now);
 
-		// Master отправляет пакет раз в 100мс
+		// Master отправляет пакеты синхронизации
 		static uint32_t last_master_send_ms = 0;
-		if (can_ambient_is_master() && (now - last_master_send_ms) >= 100u) {
+		static uint32_t last_sync_send_ms = 0;
+		static uint32_t last_ext_send_ms = 0;
+		static uint32_t last_discovery_send_ms = 0;
+
+		if (can_ambient_is_master()) {
+			// Master packet каждые 100мс
+			if ((now - last_master_send_ms) >= 100u) {
 			can_ambient_send_master_packet();
 			last_master_send_ms = now;
 		}
 
-		HAL_Delay(1);
+			// Sync packet каждые 250мс
+			if ((now - last_sync_send_ms) >= 250u) {
+				can_ambient_send_sync_packet();
+				last_sync_send_ms = now;
+			}
+
+			// Extended packet каждые 250мс (если extended режим включен)
+			extern amb_can_state_t g_amb_can;
+			if (g_amb_can.extended_mode && (now - last_ext_send_ms) >= 250u) {
+				can_ambient_send_ext_packet();
+				last_ext_send_ms = now;
+			}
+		}
+
+		// Discovery packet каждые 1000мс (все платы)
+		if ((now - last_discovery_send_ms) >= 1000u) {
+			can_ambient_send_discovery_packet();
+			last_discovery_send_ms = now;
+		}
+
+		// Неблокирующая задержка: используем WFI для экономии энергии
+		// если цикл выполняется слишком быстро (< 1 мс)
+		// Это позволяет прерываниям CAN обрабатываться без задержек
+		// WFI пробуждает процессор при любом прерывании (CAN, SysTick, DMA и т.д.)
+		if (dt == 0u) {
+			__WFI();  // Wait For Interrupt - процессор переходит в sleep до следующего прерывания
+		}
 	}
   /* USER CODE END 3 */
 }
@@ -474,28 +623,77 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 {
-    // Для этой двери / борда:
+    // Обработка DMA завершения для всех зон текущего board
+#if (BOARD_TYPE == BOARD_TYPE_FL)
     extern ws2812_t g_fl_strip;
     extern ws2812_t g_fl_handle;
     extern ws2812_t g_fl_storage;
     extern ws2812_t g_fl_footwell;
-
     ws_dma_tc_isr(&g_fl_strip,   htim);
     ws_dma_tc_isr(&g_fl_handle,  htim);
     ws_dma_tc_isr(&g_fl_storage, htim);
     ws_dma_tc_isr(&g_fl_footwell, htim);
-
-    // Если есть другие борды / блоки — добавь их ws сюда же
+#elif (BOARD_TYPE == BOARD_TYPE_FR)
+    extern ws2812_t g_fr_strip;
+    extern ws2812_t g_fr_handle;
+    extern ws2812_t g_fr_storage;
+    extern ws2812_t g_fr_footwell;
+    ws_dma_tc_isr(&g_fr_strip,   htim);
+    ws_dma_tc_isr(&g_fr_handle,  htim);
+    ws_dma_tc_isr(&g_fr_storage, htim);
+    ws_dma_tc_isr(&g_fr_footwell, htim);
+#elif (BOARD_TYPE == BOARD_TYPE_RL)
+    extern ws2812_t g_rl_strip;
+    extern ws2812_t g_rl_handle;
+    extern ws2812_t g_rl_storage;
+    extern ws2812_t g_rl_footwell;
+    ws_dma_tc_isr(&g_rl_strip,   htim);
+    ws_dma_tc_isr(&g_rl_handle,  htim);
+    ws_dma_tc_isr(&g_rl_storage, htim);
+    ws_dma_tc_isr(&g_rl_footwell, htim);
+#elif (BOARD_TYPE == BOARD_TYPE_RR)
+    extern ws2812_t g_rr_strip;
+    extern ws2812_t g_rr_handle;
+    extern ws2812_t g_rr_storage;
+    extern ws2812_t g_rr_footwell;
+    ws_dma_tc_isr(&g_rr_strip,   htim);
+    ws_dma_tc_isr(&g_rr_handle,  htim);
+    ws_dma_tc_isr(&g_rr_storage, htim);
+    ws_dma_tc_isr(&g_rr_footwell, htim);
+#elif (BOARD_TYPE == BOARD_TYPE_DASHBOARD)
+    extern ws2812_t g_dashboard_strip;
+    extern ws2812_t g_dashboard_center;
+    extern ws2812_t g_dashboard_ac_vents;
+    extern ws2812_t g_dashboard_footwell;
+    ws_dma_tc_isr(&g_dashboard_strip,   htim);
+    ws_dma_tc_isr(&g_dashboard_center,  htim);
+    ws_dma_tc_isr(&g_dashboard_ac_vents, htim);
+    ws_dma_tc_isr(&g_dashboard_footwell, htim);
+#elif (BOARD_TYPE == BOARD_TYPE_REAR)
+    extern ws2812_t g_rear_strip;
+    extern ws2812_t g_rear_handle;
+    extern ws2812_t g_rear_storage;
+    extern ws2812_t g_rear_footwell;
+    ws_dma_tc_isr(&g_rear_strip,   htim);
+    ws_dma_tc_isr(&g_rear_handle,  htim);
+    ws_dma_tc_isr(&g_rear_storage, htim);
+    ws_dma_tc_isr(&g_rear_footwell, htim);
+#endif
 }
 
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
     FDCAN_RxHeaderTypeDef rx_header;
     uint8_t rx_data[8];
+    uint8_t max_messages = 10;  /* Лимит обработки за один вызов для защиты от бесконечного цикла */
 
     if ((RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) != 0) {
-        while (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &rx_header, rx_data) == HAL_OK) {
-            can_ambient_process_rx(rx_header.Identifier, rx_data, rx_header.DataLength >> 16);
+        while (max_messages-- > 0 && 
+               HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &rx_header, rx_data) == HAL_OK) {
+            uint8_t dlc = rx_header.DataLength >> 16;
+            if (dlc <= 8) {  /* Валидация длины данных */
+                can_ambient_process_rx(rx_header.Identifier, rx_data, dlc);
+            }
         }
     }
 }

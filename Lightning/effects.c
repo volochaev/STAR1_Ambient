@@ -7,6 +7,19 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+/* Константы для эффектов */
+#define FX_WELCOME_TIME_SCALE       0.7f
+#define FX_WELCOME_WAVE_START       0.15f
+#define FX_WELCOME_WAVE_DURATION    0.70f
+#define FX_WELCOME_WAVE_GAIN_MAX    0.3f
+#define FX_WELCOME_PULSE_START      0.80f
+#define FX_WELCOME_PULSE_DURATION   0.20f
+#define FX_WELCOME_PULSE_AMPLITUDE  0.10f
+#define FX_WELCOME_CENTER_OFFSET    0.47f
+#define FX_WELCOME_DIST_SCALE       0.4f
+#define FX_GOODBYE_CURTAIN_SCALE    1.2f
+#define OEM_BRIGHTNESS_MAX          5u
+
 static float clamp01f(float x)
 {
     if (x < 0.0f) return 0.0f;
@@ -21,10 +34,6 @@ static inline void set_grb(ws2812_t *ws, uint16_t i,
 {
     if (!ws || !ws->grb) return;
     if (i >= ws->led_count) return;
-//    uint32_t p = idx3(i);
-//    ws->grb[p + 0] = g;
-//    ws->grb[p + 1] = r;
-//    ws->grb[p + 2] = b;
 
     ws_set_pixel_rgb(ws, i, r, g, b);
 }
@@ -61,7 +70,7 @@ static void fx_gradient_flow(ws2812_t *ws,
     float offset = st->t - floorf(st->t);
 
     for (uint16_t i = 0; i < n; ++i) {
-        float u = (float)i / (float)(n - 1);
+        float u = (n == 1) ? 0.5f : (float)i / (float)(n - 1);
         float uu = u + offset;
         uu -= floorf(uu);
         uint8_t r,g,b;
@@ -105,10 +114,11 @@ static void fx_dual_zone(ws2812_t *ws,
     if (n == 0) return;
 
     for (uint16_t i = 0; i < n; ++i) {
-        float v = (float)i / (float)(n - 1);
+        float v = (n == 1) ? 0.5f : (float)i / (float)(n - 1);
+        /* Создаём два градиента: от начала до середины и от середины до конца */
         float u = (v < 0.5f)
-                  ? (v * 2.0f * 0.5f)
-                  : (0.5f + (v - 0.5f) * 2.0f * 0.5f);
+                  ? (v * 2.0f)           /* первая половина: 0..0.5 -> 0..1 */
+                  : ((v - 0.5f) * 2.0f); /* вторая половина: 0.5..1 -> 0..1 */
         uint8_t r,g,b;
         ws_palette_sample_rgb8(pal, clamp01f(u), &r, &g, &b);
         set_grb(ws, i, r, g, b);
@@ -128,7 +138,7 @@ static void fx_twin_wave(ws2812_t *ws,
     st->t += (float)delta_ms * 0.001f * speed;
 
     for (uint16_t i = 0; i < n; ++i) {
-        float x = (float)i / (float)(n - 1);
+        float x = (n == 1) ? 0.5f : (float)i / (float)(n - 1);
         float w1 = 0.5f * (sinf((x - st->t) * 6.2831f) * 0.5f + 0.5f);
         float w2 = 0.5f * (sinf((1.0f - x - st->t) * 6.2831f) * 0.5f + 0.5f);
         float w = clamp01f(w1 + w2);
@@ -188,9 +198,10 @@ static void fx_mb_ocean_flow(ws2812_t *ws,
         }
 
         /* --- временное сглаживание: подмешиваем предыдущий кадр --- */
+        /* Читаем предыдущий кадр в RGB формате (ws_set_pixel_rgb использует RGB) */
         uint32_t idx = (uint32_t)i * 3u;
-        uint8_t old_g = ws->grb[idx + 0];
-        uint8_t old_r = ws->grb[idx + 1];
+        uint8_t old_r = ws->grb[idx + 0];
+        uint8_t old_g = ws->grb[idx + 1];
         uint8_t old_b = ws->grb[idx + 2];
 
         float inv_t = 1.0f - temporal_smooth;
@@ -198,10 +209,7 @@ static void fx_mb_ocean_flow(ws2812_t *ws,
         uint8_t r = (uint8_t)(old_r * temporal_smooth + r_sp * inv_t + 0.5f);
         uint8_t g = (uint8_t)(old_g * temporal_smooth + g_sp * inv_t + 0.5f);
         uint8_t b = (uint8_t)(old_b * temporal_smooth + b_sp * inv_t + 0.5f);
-//
-//        ws->grb[idx + 0] = g;
-//        ws->grb[idx + 1] = r;
-//        ws->grb[idx + 2] = b;
+        
         ws_set_pixel_rgb(ws, i, r, g, b);
         prev_r = r_sp;
         prev_g = g_sp;
@@ -231,7 +239,7 @@ static void fx_mb_energize_pulse(ws2812_t *ws,
     float s = sinf(st->t * 2.0f * (float)M_PI) * 0.5f + 0.5f;
 
     for (uint16_t i = 0; i < n; ++i) {
-        float u = (float)i / (float)(n - 1);
+        float u = (n == 1) ? 0.5f : (float)i / (float)(n - 1);
         uint8_t r,g,b;
         ws_palette_sample_rgb8(pal, u, &r, &g, &b);
         float k = 0.2f + 0.8f * s;
@@ -279,28 +287,29 @@ void fx_welcome(ws2812_t *ws,
     uint16_t n = ws->led_count;
     if (n == 0) return;
 
-    float t = t_norm * 0.7f;
+    float t = t_norm * FX_WELCOME_TIME_SCALE;
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
 
     /* --- 1. Глобальный fade-in от 0 до 1, с плавной кривой --- */
     float fade = t * t * (3.0f - 2.0f * t);  // smoothstep(0..1)
 
-    /* --- 2. Фаза волн (0.15..0.85) --- */
+    /* --- 2. Фаза волн (FX_WELCOME_WAVE_START..(FX_WELCOME_WAVE_START+FX_WELCOME_WAVE_DURATION)) --- */
     float wave_phase = 0.0f;
-    if (t > 0.15f && t < 0.85f) {
-        wave_phase = (t - 0.15f) / 0.70f;   // 0..1
+    float wave_end = FX_WELCOME_WAVE_START + FX_WELCOME_WAVE_DURATION;
+    if (t > FX_WELCOME_WAVE_START && t < wave_end) {
+        wave_phase = (t - FX_WELCOME_WAVE_START) / FX_WELCOME_WAVE_DURATION;   // 0..1
     }
 
-    /* --- 3. Лёгкий pulse в конце (0.8..1.0) --- */
+    /* --- 3. Лёгкий pulse в конце (FX_WELCOME_PULSE_START..1.0) --- */
     float pulse = 1.0f;
-    if (t > 0.80f) {
-        float tp = (t - 0.80f) / 0.20f;
-        pulse = 1.0f + 0.10f * sinf(tp * 3.14159f);
+    if (t > FX_WELCOME_PULSE_START) {
+        float tp = (t - FX_WELCOME_PULSE_START) / FX_WELCOME_PULSE_DURATION;
+        pulse = 1.0f + FX_WELCOME_PULSE_AMPLITUDE * sinf(tp * (float)M_PI);
     }
 
     /* Центр с небольшим смещением, как у MB */
-    float center = (float)n * 0.47f;
+    float center = (float)n * FX_WELCOME_CENTER_OFFSET;
     float half   = (float)((n > 1) ? (n - 1) : 1);
 
     for (uint16_t i = 0; i < n; ++i)
@@ -316,12 +325,12 @@ void fx_welcome(ws2812_t *ws,
         float dist = fabsf(x);               // 0 в центре, 1 по краям
 
         /* --- Базовая яркость: центр ярче, края чуть темнее --- */
-        float base = fade * (1.0f - 0.4f * dist);  // 0..1, но без нуля на краях
+        float base = fade * (1.0f - FX_WELCOME_DIST_SCALE * dist);  // 0..1, но без нуля на краях
         if (base < 0.0f) base = 0.0f;
 
         float br = base;
 
-        /* --- Две волны: добавляем НЕ “плюсом 0.8”, а небольшим усилением --- */
+        /* --- Две волны: добавляем НЕ "плюсом 0.8", а небольшим усилением --- */
         if (wave_phase > 0.0f) {
             float c1 = -1.0f + 2.0f * wave_phase;  // -1 → +1
             float c2 =  1.0f - 2.0f * wave_phase;  // +1 → -1
@@ -334,8 +343,8 @@ void fx_welcome(ws2812_t *ws,
 
             float w  = (w1 + w2);              // 0..~2
 
-            /* Максимальное усиление ~ +30% от base */
-            float wave_gain = 1.0f + 0.3f * w; // в центре волны ~1.3
+            /* Максимальное усиление ~ +FX_WELCOME_WAVE_GAIN_MAX% от base */
+            float wave_gain = 1.0f + FX_WELCOME_WAVE_GAIN_MAX * w; // в центре волны ~1.3
             br *= wave_gain;
         }
 
@@ -386,7 +395,7 @@ void fx_goodbye(ws2812_t *ws,
         float dist_edge = fabsf(x);  // 0 в центре, 1 по краям
 
         /* "Шторка": края гаснут раньше центра */
-        float k_curtain = 1.0f - (dist_edge * 1.2f * curtain_pos);
+        float k_curtain = 1.0f - (dist_edge * FX_GOODBYE_CURTAIN_SCALE * curtain_pos);
         if (k_curtain < 0.0f) k_curtain = 0.0f;
 
         float br = global * k_curtain;

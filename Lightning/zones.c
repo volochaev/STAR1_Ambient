@@ -84,12 +84,8 @@ static void apply_zone_fx(const ws_theme_desc_t *T,
         b = (uint8_t)(b * br);
 
         for (uint16_t i = 0; i < zm->count; ++i) {
-//            uint32_t idx = base_idx + (uint32_t)i * 3u;
-//            zm->ws->grb[idx+0] = g;
-//            zm->ws->grb[idx+1] = r;
-//            zm->ws->grb[idx+2] = b;
-
-            ws_set_pixel_rgb(zm->ws, i, r, g, b);
+            uint16_t led_idx = zm->first + i;
+            ws_set_pixel_rgb(zm->ws, led_idx, r, g, b);
         }
     }
     break;
@@ -117,12 +113,8 @@ static void apply_zone_fx(const ws_theme_desc_t *T,
         b = (uint8_t)(b * br_dyn);
 
         for (uint16_t i = 0; i < zm->count; ++i) {
-//            uint32_t idx = base_idx + (uint32_t)i * 3u;
-//            zm->ws->grb[idx+0] = g;
-//            zm->ws->grb[idx+1] = r;
-//            zm->ws->grb[idx+2] = b;
-
-            ws_set_pixel_rgb(zm->ws, i, r, g, b);
+            uint16_t led_idx = zm->first + i;
+            ws_set_pixel_rgb(zm->ws, led_idx, r, g, b);
         }
     }
     break;
@@ -150,12 +142,8 @@ static void apply_zone_fx(const ws_theme_desc_t *T,
             g = (uint8_t)(g * br);
             b = (uint8_t)(b * br);
 
-//            uint32_t idx = base_idx + (uint32_t)i * 3u;
-//            zm->ws->grb[idx+0] = g;
-//            zm->ws->grb[idx+1] = r;
-//            zm->ws->grb[idx+2] = b;
-
-            ws_set_pixel_rgb(zm->ws, i, r, g, b);
+            uint16_t led_idx = zm->first + i;
+            ws_set_pixel_rgb(zm->ws, led_idx, r, g, b);
         }
     }
     break;
@@ -327,18 +315,25 @@ void zones_apply_outro(const scene_player_t *pl, float t_norm)
 
         /* Просто домножаем текущий кадр зоны на k_zone
          * (здесь предполагается, что zones_apply_scene уже отрисовал сцену до вызова outro).
+         * Используем frame_get_pixel для правильного чтения RGB формата.
          */
-        uint32_t base_idx = (uint32_t)zm->first * 3u;
         for (uint16_t i = 0; i < zm->count; ++i) {
-            uint32_t idx = base_idx + (uint32_t)i * 3u;
-
-            uint8_t g = zm->ws->grb[idx + 0];
-            uint8_t r = zm->ws->grb[idx + 1];
-            uint8_t b = zm->ws->grb[idx + 2];
-
-            zm->ws->grb[idx + 0] = (uint8_t)(g * k_zone);
-            zm->ws->grb[idx + 1] = (uint8_t)(r * k_zone);
-            zm->ws->grb[idx + 2] = (uint8_t)(b * k_zone);
+            uint16_t led_idx = zm->first + i;
+            uint8_t r, g, b;
+            
+            /* Читаем текущий цвет пикселя (формат RGB в буфере) */
+            uint32_t idx = (uint32_t)led_idx * 3u;
+            r = zm->ws->grb[idx + 0];
+            g = zm->ws->grb[idx + 1];
+            b = zm->ws->grb[idx + 2];
+            
+            /* Применяем затухание */
+            r = (uint8_t)(r * k_zone);
+            g = (uint8_t)(g * k_zone);
+            b = (uint8_t)(b * k_zone);
+            
+            /* Записываем обратно */
+            ws_set_pixel_rgb(zm->ws, led_idx, r, g, b);
         }
     }
 }

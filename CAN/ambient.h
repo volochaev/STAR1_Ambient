@@ -75,7 +75,7 @@ typedef struct {
     uint8_t theme_index;     // index inside bank
 } amb_can_state_t;
 
-extern amb_can_state_t g_amb_can;
+extern volatile amb_can_state_t g_amb_can;
 
 /* Initialization */
 void can_ambient_init(FDCAN_HandleTypeDef *hfdcan);

@@ -1,0 +1,53 @@
+#ifndef FLASH_STORAGE_H
+#define FLASH_STORAGE_H
+
+#include <stdint.h>
+#include "ambient.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Flash storage configuration */
+/* STM32G431CBUx: 128KB Flash, page size = 2KB */
+/* Используем последнюю страницу Flash для хранения настроек */
+#define FLASH_STORAGE_BASE_ADDR    0x0801F800U  /* Адрес последней страницы (128KB - 2KB) */
+#define FLASH_STORAGE_PAGE_SIZE    0x800U       /* 2KB */
+#define FLASH_STORAGE_MAGIC         0x53544152U  /* "STAR" в ASCII */
+
+/* Структура данных для сохранения в Flash */
+typedef struct {
+    uint32_t magic;              /* Magic number для проверки валидности */
+    uint32_t crc;                /* CRC32 для проверки целостности */
+    uint8_t  extended_mode;      /* Extended режим (0/1) */
+    uint8_t  bank_id;            /* Bank ID (0=auto, 1=amber, 2=blue, 3=white) */
+    uint8_t  theme_index;        /* Индекс темы в банке */
+    uint8_t  reserved;           /* Резерв для выравнивания */
+    uint32_t reserved2[15];      /* Резерв для будущих расширений (до 64 байт) */
+} __attribute__((packed)) flash_storage_data_t;
+
+/* Функции для работы с Flash storage */
+/**
+ * @brief Загрузить настройки из Flash
+ * @return 0 если успешно, -1 если данные невалидны или отсутствуют
+ */
+int flash_storage_load(amb_can_state_t *state);
+
+/**
+ * @brief Сохранить настройки в Flash
+ * @param state Указатель на структуру с настройками для сохранения
+ * @return 0 если успешно, -1 при ошибке
+ */
+int flash_storage_save(const amb_can_state_t *state);
+
+/**
+ * @brief Стереть страницу Flash (для отладки/сброса)
+ * @return 0 если успешно, -1 при ошибке
+ */
+int flash_storage_erase(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* FLASH_STORAGE_H */
