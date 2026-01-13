@@ -1,5 +1,6 @@
 #include "driver.h"
 #include "effects.h"
+#include "features.h"
 #include <math.h>
 #include <string.h>
 
@@ -7,20 +8,15 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-/* Константы для эффектов */
-/* Intro timing: scaled so animation completes before t_norm=1.0 */
-#define FX_WELCOME_TIME_SCALE       0.85f   /* Animation completes at ~0.85, leaving 0.15 for settle */
-#define FX_WELCOME_WAVE_START       0.10f
-#define FX_WELCOME_WAVE_DURATION    0.50f   /* Waves end at 0.60 of scaled time */
-#define FX_WELCOME_WAVE_GAIN_MAX    0.25f
-#define FX_WELCOME_PULSE_START      0.55f   /* Pulse starts earlier */
-#define FX_WELCOME_PULSE_DURATION   0.20f
-#define FX_WELCOME_PULSE_AMPLITUDE  0.08f
-#define FX_WELCOME_CENTER_OFFSET    0.47f
-#define FX_WELCOME_DIST_SCALE       0.25f   /* Less edge dimming for smoother transition */
-#define FX_WELCOME_SETTLE_START     0.75f   /* Final settle phase: equalize brightness */
-#define FX_GOODBYE_CURTAIN_SCALE    1.2f
+/* OEM brightness max value (0..5 from vehicle) */
 #define OEM_BRIGHTNESS_MAX          5u
+
+/* Effect parameters are now in features.h for easy tuning:
+ * FX_WELCOME_TIME_SCALE, FX_WELCOME_WAVE_START, FX_WELCOME_WAVE_DURATION,
+ * FX_WELCOME_WAVE_GAIN_MAX, FX_WELCOME_PULSE_START, FX_WELCOME_PULSE_DURATION,
+ * FX_WELCOME_PULSE_AMPLITUDE, FX_WELCOME_CENTER_OFFSET, FX_WELCOME_DIST_SCALE,
+ * FX_WELCOME_SETTLE_START, FX_GOODBYE_CURTAIN_SCALE
+ */
 
 static float clamp01f(float x)
 {
@@ -69,10 +65,10 @@ static uint32_t fx_rand(void)
 
 static inline uint32_t idx3(uint16_t i) { return (uint32_t)i * 3u; }
 
-static inline void set_grb(ws2812_t *ws, uint16_t i,
+static inline void set_rgb(ws2812_t *ws, uint16_t i,
                            uint8_t r, uint8_t g, uint8_t b)
 {
-    if (!ws || !ws->grb) return;
+    if (!ws || !ws->rgb) return;
     if (i >= ws->led_count) return;
 
     ws_set_pixel_rgb(ws, i, r, g, b);
@@ -87,12 +83,12 @@ static void fx_solid_gradient(ws2812_t *ws,
                               uint16_t count)
 {
     (void)st;
-    if (!ws || !ws->grb || !pal || count == 0) return;
+    if (!ws || !ws->rgb || !pal || count == 0) return;
     for (uint16_t i = 0; i < count; ++i) {
         float u = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
         uint8_t r,g,b;
         ws_palette_sample_rgb8(pal, u, &r, &g, &b);
-        set_grb(ws, first + i, r, g, b);
+        set_rgb(ws, first + i, r, g, b);
     }
 }
 
@@ -103,7 +99,7 @@ static void fx_gradient_flow(ws2812_t *ws,
                              uint16_t first,
                              uint16_t count)
 {
-    if (!ws || !ws->grb || !pal || !st || count == 0) return;
+    if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
     float speed = (st->speed > 0.0f) ? st->speed : 0.03f;
     st->t += (float)delta_ms * 0.001f * speed;
@@ -115,7 +111,7 @@ static void fx_gradient_flow(ws2812_t *ws,
         uu -= floorf(uu);
         uint8_t r,g,b;
         ws_palette_sample_rgb8(pal, uu, &r, &g, &b);
-        set_grb(ws, first + i, r, g, b);
+        set_rgb(ws, first + i, r, g, b);
     }
 }
 
@@ -126,7 +122,7 @@ static void fx_soft_breathe(ws2812_t *ws,
                             uint16_t first,
                             uint16_t count)
 {
-    if (!ws || !ws->grb || !pal || !st || count == 0) return;
+    if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
     float freq = (st->speed > 0.0f) ? st->speed : 0.07f;
     st->t += (float)delta_ms * 0.001f * freq;
@@ -140,7 +136,7 @@ static void fx_soft_breathe(ws2812_t *ws,
         r = (uint8_t)(r * br);
         g = (uint8_t)(g * br);
         b = (uint8_t)(b * br);
-        set_grb(ws, first + i, r, g, b);
+        set_rgb(ws, first + i, r, g, b);
     }
 }
 
@@ -151,7 +147,7 @@ static void fx_dual_zone(ws2812_t *ws,
                          uint16_t count)
 {
     (void)st;
-    if (!ws || !ws->grb || !pal || count == 0) return;
+    if (!ws || !ws->rgb || !pal || count == 0) return;
 
     for (uint16_t i = 0; i < count; ++i) {
         float v = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
@@ -161,7 +157,7 @@ static void fx_dual_zone(ws2812_t *ws,
                   : ((v - 0.5f) * 2.0f); /* вторая половина: 0.5..1 -> 0..1 */
         uint8_t r,g,b;
         ws_palette_sample_rgb8(pal, clamp01f(u), &r, &g, &b);
-        set_grb(ws, first + i, r, g, b);
+        set_rgb(ws, first + i, r, g, b);
     }
 }
 
@@ -172,7 +168,7 @@ static void fx_twin_wave(ws2812_t *ws,
                          uint16_t first,
                          uint16_t count)
 {
-    if (!ws || !ws->grb || !pal || !st || count == 0) return;
+    if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
     float speed = (st->speed > 0.0f) ? st->speed : 0.12f;
     st->t += (float)delta_ms * 0.001f * speed;
@@ -189,7 +185,7 @@ static void fx_twin_wave(ws2812_t *ws,
         r = (uint8_t)(r * k);
         g = (uint8_t)(g * k);
         b = (uint8_t)(b * k);
-        set_grb(ws, first + i, r, g, b);
+        set_rgb(ws, first + i, r, g, b);
     }
 }
 
@@ -200,7 +196,7 @@ static void fx_mb_ocean_flow(ws2812_t *ws,
                              uint16_t first,
                              uint16_t count)
 {
-    if (!ws || !ws->grb || !pal || !st || count == 0) return;
+    if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
     /* 1) Очень медленная скорость – чтобы шаг между кадрами был крошечный */
     float speed = (st->speed > 0.0f) ? st->speed : 0.008f;  // было 0.01, можно даже 0.005
@@ -244,9 +240,9 @@ static void fx_mb_ocean_flow(ws2812_t *ws,
         /* --- временное сглаживание: подмешиваем предыдущий кадр --- */
         /* Читаем предыдущий кадр в RGB формате (ws_set_pixel_rgb использует RGB) */
         uint32_t idx = (uint32_t)(first + i) * 3u;
-        uint8_t old_r = first_frame ? 0 : ws->grb[idx + 0];
-        uint8_t old_g = first_frame ? 0 : ws->grb[idx + 1];
-        uint8_t old_b = first_frame ? 0 : ws->grb[idx + 2];
+        uint8_t old_r = first_frame ? 0 : ws->rgb[idx + 0];
+        uint8_t old_g = first_frame ? 0 : ws->rgb[idx + 1];
+        uint8_t old_b = first_frame ? 0 : ws->rgb[idx + 2];
 
         float inv_t = 1.0f - temporal_smooth;
 
@@ -278,7 +274,7 @@ static void fx_mb_energize_pulse(ws2812_t *ws,
                                  uint16_t first,
                                  uint16_t count)
 {
-    if (!ws || !ws->grb || !pal || !st || count == 0) return;
+    if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
     float freq = (st->speed > 0.0f) ? st->speed : 0.1f;
     st->t += (float)delta_ms * 0.001f * freq;
@@ -292,7 +288,7 @@ static void fx_mb_energize_pulse(ws2812_t *ws,
         r = (uint8_t)(r * k);
         g = (uint8_t)(g * k);
         b = (uint8_t)(b * k);
-        set_grb(ws, first + i, r, g, b);
+        set_rgb(ws, first + i, r, g, b);
     }
 }
 
@@ -303,7 +299,7 @@ static void fx_mb_velvet_flow(ws2812_t *ws,
                               uint16_t first,
                               uint16_t count)
 {
-    if (!ws || !ws->grb || !pal || !st || count == 0) return;
+    if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
     /* Ещё более медленная скорость для бархатного эффекта */
     float speed = (st->speed > 0.0f) ? st->speed : 0.005f;
@@ -344,9 +340,9 @@ static void fx_mb_velvet_flow(ws2812_t *ws,
 
         /* Временное сглаживание */
         uint32_t idx = (uint32_t)(first + i) * 3u;
-        uint8_t old_r = first_frame ? 0 : ws->grb[idx + 0];
-        uint8_t old_g = first_frame ? 0 : ws->grb[idx + 1];
-        uint8_t old_b = first_frame ? 0 : ws->grb[idx + 2];
+        uint8_t old_r = first_frame ? 0 : ws->rgb[idx + 0];
+        uint8_t old_g = first_frame ? 0 : ws->rgb[idx + 1];
+        uint8_t old_b = first_frame ? 0 : ws->rgb[idx + 2];
 
         float inv_t = 1.0f - temporal_smooth;
 
@@ -368,7 +364,7 @@ static void fx_mb_gentle_pulse(ws2812_t *ws,
                                uint16_t first,
                                uint16_t count)
 {
-    if (!ws || !ws->grb || !pal || !st || count == 0) return;
+    if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
     /* Медленная частота для мягкого пульса */
     float freq = (st->speed > 0.0f) ? st->speed : 0.04f;  // ~0.04 Гц = 25 сек на цикл
@@ -388,7 +384,7 @@ static void fx_mb_gentle_pulse(ws2812_t *ws,
         r = (uint8_t)(r * k);
         g = (uint8_t)(g * k);
         b = (uint8_t)(b * k);
-        set_grb(ws, first + i, r, g, b);
+        set_rgb(ws, first + i, r, g, b);
     }
 }
 
@@ -408,7 +404,7 @@ static void fx_aurora(ws2812_t *ws,
                       uint16_t first,
                       uint16_t count)
 {
-    if (!ws || !ws->grb || !pal || !st || count == 0) return;
+    if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
     /* Очень медленная базовая скорость для магического эффекта */
     float speed = (st->speed > 0.0f) ? st->speed : 0.006f;
@@ -447,7 +443,7 @@ static void fx_aurora(ws2812_t *ws,
         g = (uint8_t)(g * brightness_wave);
         b = (uint8_t)(b * brightness_wave);
         
-        set_grb(ws, first + i, r, g, b);
+        set_rgb(ws, first + i, r, g, b);
     }
 }
 
@@ -463,7 +459,7 @@ static void fx_cascade(ws2812_t *ws,
                        uint16_t first,
                        uint16_t count)
 {
-    if (!ws || !ws->grb || !pal || !st || count == 0) return;
+    if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
     /* Умеренная скорость для каскадного эффекта */
     float speed = (st->speed > 0.0f) ? st->speed : 0.015f;
@@ -503,7 +499,7 @@ static void fx_cascade(ws2812_t *ws,
         g = (uint8_t)(g * brightness);
         b = (uint8_t)(b * brightness);
         
-        set_grb(ws, first + i, r, g, b);
+        set_rgb(ws, first + i, r, g, b);
     }
 }
 
@@ -519,7 +515,7 @@ static void fx_sparkle(ws2812_t *ws,
                        uint16_t first,
                        uint16_t count)
 {
-    if (!ws || !ws->grb || !pal || !st || count == 0) return;
+    if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
     /* Базовая скорость и таймер */
     float speed = (st->speed > 0.0f) ? st->speed : 0.02f;
@@ -576,7 +572,7 @@ static void fx_sparkle(ws2812_t *ws,
         g = (uint8_t)(g * brightness);
         b = (uint8_t)(b * brightness);
         
-        set_grb(ws, first + i, r, g, b);
+        set_rgb(ws, first + i, r, g, b);
     }
 }
 
@@ -592,7 +588,7 @@ static void fx_breathe_wave(ws2812_t *ws,
                             uint16_t first,
                             uint16_t count)
 {
-    if (!ws || !ws->grb || !pal || !st || count == 0) return;
+    if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
     /* Очень медленная скорость для медитативного эффекта */
     float speed = (st->speed > 0.0f) ? st->speed : 0.008f;
@@ -633,7 +629,7 @@ static void fx_breathe_wave(ws2812_t *ws,
         g = (uint8_t)(g * brightness);
         b = (uint8_t)(b * brightness);
         
-        set_grb(ws, first + i, r, g, b);
+        set_rgb(ws, first + i, r, g, b);
     }
 }
 
@@ -649,7 +645,7 @@ static void fx_color_morph(ws2812_t *ws,
                            uint16_t first,
                            uint16_t count)
 {
-    if (!ws || !ws->grb || !pal || !st || count == 0) return;
+    if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
     /* Медленная скорость для гипнотического эффекта */
     float speed = (st->speed > 0.0f) ? st->speed : 0.004f;
@@ -693,7 +689,7 @@ static void fx_color_morph(ws2812_t *ws,
         uint8_t g = (uint8_t)(g1 * inv_blend + g2 * local_blend);
         uint8_t b = (uint8_t)(b1 * inv_blend + b2 * local_blend);
         
-        set_grb(ws, first + i, r, g, b);
+        set_rgb(ws, first + i, r, g, b);
     }
 }
 
@@ -705,7 +701,7 @@ static void fx_welcome_sweep(ws2812_t *ws,
                              uint16_t first,
                              uint16_t count)
 {
-    if (!ws || !ws->grb || !pal || count == 0) return;
+    if (!ws || !ws->rgb || !pal || count == 0) return;
 
     float head  = t_norm * (float)count;
     float width = 0.25f * (float)count;
@@ -721,7 +717,7 @@ static void fx_welcome_sweep(ws2812_t *ws,
         r = (uint8_t)(r * k);
         g = (uint8_t)(g * k);
         b = (uint8_t)(b * k);
-        set_grb(ws, first + i, r, g, b);
+        set_rgb(ws, first + i, r, g, b);
     }
 }
 
@@ -880,7 +876,7 @@ static void fx_goodbye_fade(ws2812_t *ws,
                             uint16_t first,
                             uint16_t count)
 {
-    if (!ws || !ws->grb || !pal || count == 0) return;
+    if (!ws || !ws->rgb || !pal || count == 0) return;
 
     float k = clamp01f(1.0f - t_norm);
     float br = base_br * k;
@@ -892,7 +888,7 @@ static void fx_goodbye_fade(ws2812_t *ws,
         r = (uint8_t)(r * br);
         g = (uint8_t)(g * br);
         b = (uint8_t)(b * br);
-        set_grb(ws, first + i, r, g, b);
+        set_rgb(ws, first + i, r, g, b);
     }
 }
 

@@ -839,14 +839,12 @@ const ws_theme_desc_t* ws_theme_get(ws_theme_id_t id)
  * ----------------------------------------------------------------------- */
 
 static const ws_theme_id_t G_AMBER_THEMES[] = {
-    THEME_AMBER_WARM_LOUNGE,
-    THEME_AMBER_SUNSET_FLOW,
-    THEME_AMBER_SOFT_PULSE,
-    THEME_AMBER_DUO_WAVE,
-    THEME_COPPER_LOUNGE,      // новый медно-золотой премиум
-    THEME_ROSE_SUITE,         // мягкий розово-золотой lounge
-    THEME_RED_MOON_PREMIUM,   // «красная луна»
-    THEME_AMBER_GOLD_LUXURY,  // янтарное золото люкс
+    THEME_AMBER_WARM_LOUNGE,     // тёплый янтарный лаунж
+    THEME_AMBER_SUNSET_FLOW,     // золотистый шампань
+    THEME_AMBER_SOFT_PULSE,      // янтарное золото с искрами
+    THEME_AMBER_DUO_WAVE,        // янтарная двухтоновая волна
+    THEME_COPPER_LOUNGE,         // медно-золотой премиум
+    THEME_AMBER_GOLD_LUXURY,     // янтарное золото люкс
 };
 
 static const ws_theme_id_t G_BLUE_THEMES[] = {
@@ -864,11 +862,13 @@ static const ws_theme_id_t G_WHITE_THEMES[] = {
     THEME_WHITE_ICE,
     THEME_WHITE_SATIN,
     THEME_WHITE_CRYSTAL_WAVE,
-    THEME_HYACINTH_DREAM,  // фиолетово-розовый премиум
-    THEME_ICE_CRYSTAL,     // ледяной кристалл
-    THEME_DIAMOND_PREMIUM, // бриллиантово-белый премиум
-    THEME_SILVER_LOUNGE,   // серебряный лаунж
+    THEME_HYACINTH_DREAM,    // фиолетово-розовый премиум
+    THEME_ICE_CRYSTAL,       // ледяной кристалл
+    THEME_DIAMOND_PREMIUM,   // бриллиантово-белый премиум
+    THEME_SILVER_LOUNGE,     // серебряный лаунж
     THEME_PLATINUM_ELEGANCE, // платиновая элегантность
+    THEME_ROSE_SUITE,        // розово-золотой lounge (перенесён из AMBER)
+    THEME_RED_MOON_PREMIUM,  // бордо «красная луна» (перенесён из AMBER)
 };
 
 const ws_theme_bank_t g_theme_banks[OEM_COLOR_MAX] = {

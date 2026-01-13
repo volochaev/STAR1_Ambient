@@ -41,7 +41,7 @@ static uint32_t channel_to_active_flag(uint32_t tim_channel)
 
 static void pack_into(ws2812_t *ws, uint16_t *dst)
 {
-    if (!ws || !dst || !ws->grb) return;
+    if (!ws || !dst || !ws->rgb) return;
 
     const uint16_t one  = WS_T1H;
     const uint16_t zero = WS_T0H;
@@ -56,7 +56,7 @@ static void pack_into(ws2812_t *ws, uint16_t *dst)
     if (bits_payload > max_payload)
         bits_payload = max_payload;
 
-    const uint8_t *src = ws->grb;
+    const uint8_t *src = ws->rgb;
     uint32_t bits_written = 0;
 
     if (bq == 0u) {
@@ -101,7 +101,7 @@ void ws_init(ws2812_t        *ws,
 
     ws->htim        = htim;
     ws->tim_channel = tim_channel;
-    ws->grb         = framebuffer;
+    ws->rgb         = framebuffer;
     ws->led_count   = led_count;
 
     ws->dma_buf_a   = dma_buf_a;
@@ -111,7 +111,7 @@ void ws_init(ws2812_t        *ws,
 
     ws->dma_len     = (uint32_t)led_count * BYTES_PER_LED * 8u + WS_RESET_SLOTS;
 
-    memset(ws->grb, 0, (size_t)led_count * BYTES_PER_LED);
+    memset(ws->rgb, 0, (size_t)led_count * BYTES_PER_LED);
 
     ws->global_brightness = 0.0f;
     ws->br_forced         = 0u;
@@ -141,7 +141,7 @@ void ws_release_brightness(ws2812_t *ws)
 
 void ws_render(ws2812_t *ws)
 {
-    if (!ws || !ws->htim || !ws->active_buf || !ws->ready_buf || !ws->grb)
+    if (!ws || !ws->htim || !ws->active_buf || !ws->ready_buf || !ws->rgb)
         return;
 
     pack_into(ws, ws->ready_buf);
@@ -192,9 +192,9 @@ void ws_power_set(uint8_t on)
 {
     g_power_state = on ? 1u : 0u;
 
-#ifdef LED_PWR_ON_Pin
-    HAL_GPIO_WritePin(LED_PWR_ON_GPIO_Port,
-                      LED_PWR_ON_Pin,
+#ifdef LED_PWR_EN_Pin
+    HAL_GPIO_WritePin(LED_PWR_EN_GPIO_Port,
+                      LED_PWR_EN_Pin,
                       on ? GPIO_PIN_SET : GPIO_PIN_RESET);
 #endif
 

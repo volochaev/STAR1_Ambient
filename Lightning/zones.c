@@ -48,9 +48,9 @@ static void apply_zone_fx(const ws_theme_desc_t *T,
         /* Если зона выключена – просто гасим её сегмент */
         for (uint16_t i = 0; i < zm->count; ++i) {
             uint32_t idx = base_idx + (uint32_t)i * 3u;
-            zm->ws->grb[idx+0] = 0;
-            zm->ws->grb[idx+1] = 0;
-            zm->ws->grb[idx+2] = 0;
+            zm->ws->rgb[idx+0] = 0;
+            zm->ws->rgb[idx+1] = 0;
+            zm->ws->rgb[idx+2] = 0;
         }
         return;
     }
@@ -323,9 +323,9 @@ void zones_apply_outro(const scene_player_t *pl, float t_norm)
             
             /* Читаем текущий цвет пикселя (формат RGB в буфере) */
             uint32_t idx = (uint32_t)led_idx * 3u;
-            r = zm->ws->grb[idx + 0];
-            g = zm->ws->grb[idx + 1];
-            b = zm->ws->grb[idx + 2];
+            r = zm->ws->rgb[idx + 0];
+            g = zm->ws->rgb[idx + 1];
+            b = zm->ws->rgb[idx + 2];
             
             /* Применяем затухание */
             r = (uint8_t)(r * k_zone);

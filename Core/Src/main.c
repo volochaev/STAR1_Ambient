@@ -37,6 +37,7 @@
 #include "presets.h"
 #include "zones.h"
 #include "ambient.h"
+#include "features.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -64,6 +65,14 @@ DMA_HandleTypeDef hdma_tim1_ch2;
 DMA_HandleTypeDef hdma_tim1_ch3;
 DMA_HandleTypeDef hdma_tim1_ch4;
 
+#if AMB_ENABLE_WATCHDOG
+IWDG_HandleTypeDef hiwdg;
+#endif
+
+#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+RTC_HandleTypeDef hrtc;
+#endif
+
 /* USER CODE BEGIN PV */
 
 scene_player_t g_player;             // плеер сцен
@@ -74,6 +83,16 @@ uint32_t g_last_tick_ms = 0;   // для delta_ms в player_tick
 uint32_t g_last_theme_switch_ms = 0;  // когда последний раз меняли тему (для демо режима)
 static uint8_t g_was_master = 0;  // предыдущий статус master (для отслеживания перехода)
 
+#if !DEMO_MODE
+static uint8_t g_waiting_for_can = 1;  // Ждём первый CAN пакет перед запуском ленты
+#endif
+
+#if AMB_ENABLE_SLEEP_MODE
+static uint8_t g_sleep_fade_active = 0;   // Флаг активного затухания перед сном
+static uint32_t g_sleep_fade_start_ms = 0; // Время начала затухания
+static float g_sleep_fade_start_brightness = 1.0f; // Начальная яркость при затухании
+#endif
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -82,12 +101,59 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_FDCAN1_Init(void);
+#if AMB_ENABLE_WATCHDOG
+static void MX_IWDG_Init(void);
+#endif
+#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+static void MX_RTC_Init(void);
+static void RTC_SetWakeupTimer(uint32_t seconds);
+#endif
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+/**
+ * @brief Настроить PB8 (FDCAN_RX) как EXTI для пробуждения из STOP mode
+ */
+static void configure_can_rx_exti_wakeup(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    /* Переконфигурируем PB8 как вход с EXTI на falling edge */
+    GPIO_InitStruct.Pin = GPIO_PIN_8;
+    GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;  /* CAN dominant = low */
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    /* Включаем EXTI прерывание */
+    HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+}
+
+/**
+ * @brief Восстановить PB8 как FDCAN_RX после пробуждения
+ */
+static void restore_can_rx_af(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    /* Отключаем EXTI */
+    HAL_NVIC_DisableIRQ(EXTI9_5_IRQn);
+    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_8);
+
+    /* Восстанавливаем AF для FDCAN */
+    GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF9_FDCAN1;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+}
+#endif
 
 /**
  * @brief Получить указатель на главную strip для текущего board
@@ -248,31 +314,40 @@ int main(void)
   MX_DMA_Init();
   MX_TIM1_Init();
   MX_FDCAN1_Init();
+#if AMB_ENABLE_WATCHDOG
+  MX_IWDG_Init();
+#endif
+#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+  MX_RTC_Init();
+#endif
   /* USER CODE BEGIN 2 */
 
 	// 1) Инициализируем board (TIM1 + все ws2812_t, зоны, питание выкл)
 	board_led_init();
 
-	// 2) Выбираем стартовый "OEM цвет" (будет обновляться через CAN)
-	g_oem_color = OEM_COLOR_AMBER;
+	// 2) Инициализация CAN ambient системы (загружает настройки из flash)
+	can_ambient_init(&hfdcan1);
 
-	// 3) Стартовая тема = дефолтная для этого OEM-цвета
+	// 3) Начальные значения (будут обновлены из CAN)
+	g_oem_color = OEM_COLOR_AMBER;
 	g_current_theme = ws_theme_default_for_oem(g_oem_color);
 
 	// 4) Инициализируем плеер
 	player_init(&g_player, g_current_theme);
 
-	// 5) Запускаем welcome-интро по главной ленте
-	ws2812_t *main_strip = get_main_strip();
-	if (main_strip) {
-		player_start_intro(main_strip, &g_player);
+#if DEMO_MODE
+	// В демо режиме запускаем intro сразу
+	{
+		ws2812_t *main_strip = get_main_strip();
+		if (main_strip) {
+			player_start_intro(main_strip, &g_player);
+		}
 	}
+#endif
+	// В обычном режиме плеер остаётся в PST_IDLE до получения первого CAN пакета
 
 	g_last_tick_ms = HAL_GetTick();
 	g_last_theme_switch_ms = g_last_tick_ms;
-
-	// 6) Инициализация CAN ambient системы
-	can_ambient_init(&hfdcan1);
 
   /* USER CODE END 2 */
 
@@ -297,6 +372,47 @@ int main(void)
 		// Сначала обновляем роль master/slave (discovery и failover)
 		can_ambient_update_role(now);
 
+#if !DEMO_MODE
+		// В обычном режиме ждём первый CAN пакет перед запуском ленты
+		if (g_waiting_for_can) {
+			if (can_ambient_oem_received()) {
+				// Первый OEM пакет получен - выбираем тему и запускаем intro
+				extern volatile amb_can_state_t g_amb_can;
+				__disable_irq();
+				oem_color_id_t oem_col = (oem_color_id_t)g_amb_can.oem_color;
+				uint8_t ext_mode = g_amb_can.extended_mode;
+				uint8_t theme_idx = g_amb_can.oem_theme_indices[oem_col];
+				__enable_irq();
+
+				g_oem_color = oem_col;
+				
+				// Выбираем тему на основе extended_mode и данных из flash
+				const ws_theme_bank_t *bank = ws_theme_get_bank(oem_col);
+				if (bank && bank->count > 0) {
+					if (theme_idx == 0xFF || theme_idx >= bank->count) {
+						theme_idx = 0;  // Первая тема если индекс невалидный
+					}
+					g_current_theme = bank->themes[theme_idx];
+				} else {
+					g_current_theme = ws_theme_default_for_oem(oem_col);
+				}
+
+				// Инициализируем плеер с выбранной темой
+				player_init(&g_player, g_current_theme);
+				
+				// Запускаем intro
+				if (main_strip) {
+					player_start_intro(main_strip, &g_player);
+				}
+				
+				g_waiting_for_can = 0;
+			} else {
+				// Ещё не получили OEM пакет - ждём
+				continue;
+			}
+		}
+#endif
+
 		// Обновляем ambient систему из CAN (синхронизация яркости и OEM цвета)
 		// В демо режиме тема управляется через demo_mode_update(), поэтому
 		// can_ambient_update() обновляет только яркость и OEM цвет
@@ -304,9 +420,93 @@ int main(void)
 			can_ambient_update(main_strip, &g_player);
 		}
 
+		// Синхронизируем g_oem_color с CAN состоянием (для авто-ротации)
+		{
+			extern volatile amb_can_state_t g_amb_can;
+			__disable_irq();
+			oem_color_id_t oem_col = (oem_color_id_t)g_amb_can.oem_color;
+			__enable_irq();
+			g_oem_color = oem_col;
+		}
+
 		// Демо режим: автоматическое переключение тем (только если DEMO_MODE == 1 и master)
 		// Вызывается после can_ambient_update(), чтобы демо режим мог переопределить тему
 		demo_mode_update(now);
+
+#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+		// Sleep mode: проверяем таймаут и выполняем плавное затухание перед сном
+		can_ambient_check_sleep_timeout();
+
+		if (can_ambient_should_sleep() && !g_sleep_fade_active) {
+			// Начинаем плавное затухание
+			g_sleep_fade_active = 1;
+			g_sleep_fade_start_ms = now;
+			g_sleep_fade_start_brightness = g_player.calc_brightness;
+		}
+
+		if (g_sleep_fade_active) {
+			uint32_t fade_elapsed = now - g_sleep_fade_start_ms;
+			if (fade_elapsed >= AMB_SLEEP_FADE_OUT_MS) {
+				// Затухание завершено - переходим в сон
+				g_sleep_fade_active = 0;
+				can_ambient_clear_sleep_request();
+
+				// Запускаем outro перед сном
+				if (main_strip && g_player.stage == PST_SCENE) {
+					player_start_outro(main_strip, &g_player);
+				}
+
+				// Ждём завершения outro (или пропускаем если уже IDLE)
+				while (g_player.stage == PST_OUTRO) {
+					uint32_t outro_now = HAL_GetTick();
+					uint32_t outro_dt = outro_now - g_last_tick_ms;
+					if (outro_dt > 100u) outro_dt = 16u;
+					g_last_tick_ms = outro_now;
+					player_tick(main_strip, &g_player, outro_dt);
+					zones_apply_outro(&g_player, 0.0f);  // Применяем затухание ко всем зонам
+					HAL_Delay(10);
+				}
+
+				/* Enter sleep mode */
+				can_ambient_enter_sleep();
+
+				/* Configure EXTI on CAN RX for wakeup */
+				configure_can_rx_exti_wakeup();
+
+				/* Configure RTC wakeup timer as backup (in case CAN bus is dead) */
+				RTC_SetWakeupTimer(AMB_SLEEP_RTC_WAKEUP_SEC);
+
+				/* Enter STOP mode (wakeup via EXTI from CAN RX or RTC) */
+				HAL_SuspendTick();
+				HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
+				HAL_ResumeTick();
+
+				/* Woke up - restore operation */
+				SystemClock_Config();  /* Restore clock after STOP */
+				restore_can_rx_af();   /* Restore AF for FDCAN */
+				
+				/* Disable RTC wakeup timer */
+				HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
+				
+				can_ambient_exit_sleep();
+
+				// Ждём первый CAN пакет заново
+				g_waiting_for_can = 1;
+				can_ambient_reset_oem_received();
+				continue;
+			} else {
+				// Плавное затухание яркости
+				float fade_progress = (float)fade_elapsed / (float)AMB_SLEEP_FADE_OUT_MS;
+				float fade_brightness = g_sleep_fade_start_brightness * (1.0f - fade_progress);
+				if (fade_brightness < 0.0f) fade_brightness = 0.0f;
+
+				// Применяем затухание к главной ленте
+				if (main_strip) {
+					ws_force_brightness(main_strip, fade_brightness);
+				}
+			}
+		}
+#endif
 
 		// Обновляем player (главная strip)
 		if (main_strip) {
@@ -385,15 +585,18 @@ int main(void)
 			last_discovery_send_ms = now;
 		}
 
-		// Неблокирующая задержка: используем WFI для экономии энергии
-		// если цикл выполняется слишком быстро (< 1 мс)
-		// Это позволяет прерываниям CAN обрабатываться без задержек
-		// WFI пробуждает процессор при любом прерывании (CAN, SysTick, DMA и т.д.)
+		/* Feed watchdog to prevent reset */
+#if AMB_ENABLE_WATCHDOG
+		HAL_IWDG_Refresh(&hiwdg);
+#endif
+
+		/* Non-blocking delay: use WFI for power saving when loop runs faster than 1ms.
+		 * WFI wakes CPU on any interrupt (CAN, SysTick, DMA, etc.) */
 		if (dt == 0u) {
-			__WFI();  // Wait For Interrupt - процессор переходит в sleep до следующего прерывания
+			__WFI();
 		}
     
-    HAL_Delay(1);
+		HAL_Delay(1);
 	}
   /* USER CODE END 3 */
 }
@@ -465,6 +668,12 @@ static void MX_FDCAN1_Init(void)
   hfdcan1.Init.AutoRetransmission = ENABLE;
   hfdcan1.Init.TransmitPause = DISABLE;
   hfdcan1.Init.ProtocolException = DISABLE;
+  /* CAN Baudrate calculation:
+   * FDCAN clock = 160 MHz (from PLL)
+   * Prescaler = 40, TimeSeg1 = 13, TimeSeg2 = 2, SyncJumpWidth = 1
+   * Bit time = (1 + TimeSeg1 + TimeSeg2) = 16 time quanta
+   * Baudrate = 160 MHz / 40 / 16 = 250 kbit/s
+   */
   hfdcan1.Init.NominalPrescaler = 40;
   hfdcan1.Init.NominalSyncJumpWidth = 1;
   hfdcan1.Init.NominalTimeSeg1 = 13;
@@ -645,6 +854,115 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+#if AMB_ENABLE_WATCHDOG
+/**
+ * @brief IWDG Initialization Function
+ * @details Configures Independent Watchdog with timeout from features.h.
+ *          IWDG clock = LSI (~32 kHz), Prescaler = 64
+ *          Timeout = (Prescaler * Reload) / LSI_freq
+ *          For 2000ms: Reload = 2000 * 32000 / 64000 = 1000
+ */
+static void MX_IWDG_Init(void)
+{
+    hiwdg.Instance = IWDG;
+    hiwdg.Init.Prescaler = IWDG_PRESCALER_64;
+    /* Calculate reload value for desired timeout */
+    /* LSI ~32kHz, Prescaler 64 -> 500 Hz -> 2ms per tick */
+    hiwdg.Init.Reload = (AMB_WATCHDOG_TIMEOUT_MS * 500u) / 1000u;
+    if (hiwdg.Init.Reload > 4095u) {
+        hiwdg.Init.Reload = 4095u;  /* Max value */
+    }
+    hiwdg.Init.Window = 4095;  /* No window mode */
+    if (HAL_IWDG_Init(&hiwdg) != HAL_OK) {
+        Error_Handler();
+    }
+}
+#endif /* AMB_ENABLE_WATCHDOG */
+
+#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+/**
+ * @brief RTC Initialization Function
+ * @details Configures RTC for wakeup timer functionality.
+ *          Uses LSI as clock source for simplicity (no external crystal needed).
+ */
+static void MX_RTC_Init(void)
+{
+    /* Enable PWR clock */
+    __HAL_RCC_PWR_CLK_ENABLE();
+    
+    /* Enable backup domain access */
+    HAL_PWR_EnableBkUpAccess();
+    
+    /* Enable LSI */
+    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI;
+    RCC_OscInitStruct.LSIState = RCC_LSI_ON;
+    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
+        Error_Handler();
+    }
+    
+    /* Select LSI as RTC clock source */
+    RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
+    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_RTC;
+    PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
+    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK) {
+        Error_Handler();
+    }
+    
+    /* Enable RTC clock */
+    __HAL_RCC_RTC_ENABLE();
+    
+    /* Configure RTC */
+    hrtc.Instance = RTC;
+    hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+    hrtc.Init.AsynchPrediv = 127;
+    hrtc.Init.SynchPrediv = 255;  /* LSI/128/256 = ~1 Hz */
+    hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+    hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+    hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+    hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
+    if (HAL_RTC_Init(&hrtc) != HAL_OK) {
+        Error_Handler();
+    }
+    
+    /* Configure EXTI for RTC wakeup */
+    HAL_NVIC_SetPriority(RTC_WKUP_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(RTC_WKUP_IRQn);
+}
+
+/**
+ * @brief Configure RTC wakeup timer
+ * @param seconds Wakeup timeout in seconds
+ */
+static void RTC_SetWakeupTimer(uint32_t seconds)
+{
+    if (seconds == 0) return;
+    
+    /* Limit to max ~18 hours (65535 seconds with RTC_WAKEUPCLOCK_CK_SPRE_16BITS) */
+    if (seconds > 65535u) {
+        seconds = 65535u;
+    }
+    
+    /* Deactivate existing timer first */
+    HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
+    
+    /* Configure wakeup timer with 1 Hz clock (after RTC predividers) */
+    if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, seconds - 1, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK) {
+        Error_Handler();
+    }
+}
+
+/**
+ * @brief RTC Wakeup IRQ Handler
+ */
+void RTC_WKUP_IRQHandler(void)
+{
+    HAL_RTCEx_WakeUpTimerIRQHandler(&hrtc);
+}
+#endif /* AMB_ENABLE_SLEEP_MODE && !DEMO_MODE */
+
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 {
     // Обработка DMA завершения для всех зон текущего board

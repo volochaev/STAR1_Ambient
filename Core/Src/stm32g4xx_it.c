@@ -288,4 +288,17 @@ void FDCAN1_IT1_IRQHandler(void)
 
 /* USER CODE BEGIN 1 */
 
+/**
+  * @brief This function handles EXTI line[9:5] interrupts (for CAN RX wakeup).
+  */
+void EXTI9_5_IRQHandler(void)
+{
+  /* Clear EXTI pending bit for PB8 (CAN RX) */
+  if (__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_8) != RESET) {
+    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_8);
+    /* Wakeup from STOP mode - nothing else to do here,
+     * main loop will handle the rest */
+  }
+}
+
 /* USER CODE END 1 */

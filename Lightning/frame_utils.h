@@ -11,7 +11,7 @@
  * - Mixing two frames with alpha blending
  * - Pixel-level get/set operations
  *
- * @note All operations work on GRB format framebuffers
+ * @note All operations work on RGB format framebuffers
  *
  * @version 2.0
  * @date    2025

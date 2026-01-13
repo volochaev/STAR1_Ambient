@@ -9,7 +9,7 @@
  * @section Driver Architecture
  * - Uses TIM1 PWM at 800 kHz for WS2812B timing
  * - Double buffered DMA for smooth frame updates
- * - GRB color format (green, red, blue byte order)
+ * - RGB color format (red, green, blue byte order)
  * - Global brightness control with per-frame dimming
  *
  * @section Usage
@@ -54,7 +54,7 @@ typedef struct {
     TIM_HandleTypeDef *htim;
     uint32_t           tim_channel;
 
-    uint8_t           *grb;
+    uint8_t           *rgb;
     uint16_t           led_count;
 
     uint16_t          *dma_buf_a;
@@ -115,17 +115,9 @@ static inline void ws_set_pixel_rgb(ws2812_t *ws,
 {
     uint32_t idx = (uint32_t)i * 3u;
 
-    // RGB
-    ws->grb[idx + 0] = r;
-    ws->grb[idx + 1] = g;
-    ws->grb[idx + 2] = b;
-
-    // GRB
-    /*
-    ws->grb[idx + 0] = g;
-    ws->grb[idx + 1] = r;
-    ws->grb[idx + 2] = b;
-    */
+    ws->rgb[idx + 0] = r;
+    ws->rgb[idx + 1] = g;
+    ws->rgb[idx + 2] = b;
 }
 
 #ifdef __cplusplus

@@ -32,6 +32,8 @@
 #include "scene_player.h"
 #include "features.h"
 #include "flash_storage.h"
+#include "driver.h"
+#include <string.h>
 
 /* ========== GLOBAL STATE (volatile для thread-safety) ========== */
 volatile amb_can_state_t g_amb_can = {
@@ -48,14 +50,16 @@ volatile amb_can_state_t g_amb_can = {
 static FDCAN_HandleTypeDef *g_can = NULL;
 static volatile ws_theme_id_t g_pending_theme = 0;  /* Следующая тема для плавного перехода */
 static volatile uint8_t g_has_pending_theme = 0;   /* Флаг наличия ожидающей темы */
-
-/* Flash storage: задержка перед сохранением (чтобы не сохранять слишком часто) */
-#define FLASH_SAVE_DELAY_MS  2000u  /* Сохранять через 2 секунды после последнего изменения */
+static volatile uint8_t g_oem_packet_received = 0; /* Флаг получения первого OEM пакета */
 
 /* OEM brightness constants */
-#define OEM_BRIGHTNESS_MAX  5u  /* Максимальное значение яркости от OEM (0..5) */
+#define OEM_BRIGHTNESS_MAX  5u  /* Max OEM brightness value (0..5) */
 static volatile uint32_t g_last_settings_change_ms = 0;
-static volatile uint8_t g_settings_changed = 0;  /* Флаг изменения настроек */
+static volatile uint8_t g_settings_changed = 0;  /* Settings change flag */
+
+/* Last saved state for Flash wear optimization (only save if actually changed) */
+static amb_can_state_t g_last_saved_state = {0};
+static uint8_t g_last_saved_valid = 0;
 
 /* ========== EXTENDED MODE TOGGLE ========== */
 #define EXT_MODE_TOGGLE_COLOR_CHANGES  5   /* Количество смен цвета для переключения */
@@ -71,6 +75,13 @@ static uint32_t g_last_sync_send_ms = 0;
 static uint32_t g_last_ext_send_ms = 0;
 static volatile uint8_t g_discovered_boards[6] = {0, 0, 0, 0, 0, 0};  /* FL, FR, RL, RR, DASHBOARD, REAR */
 static uint32_t g_board_unique_id = 0;  /* можно использовать UID чипа */
+
+/* ========== SLEEP MODE STATE ========== */
+#if AMB_ENABLE_SLEEP_MODE
+static volatile uint32_t g_last_can_activity_ms = 0;  /* Время последней CAN активности */
+static volatile uint8_t g_sleep_requested = 0;         /* Флаг запроса на засыпание */
+static volatile uint8_t g_is_sleeping = 0;             /* Флаг текущего состояния сна */
+#endif
 
 /* ========== INIT ========== */
 void can_ambient_init(FDCAN_HandleTypeDef *hfdcan)
@@ -88,10 +99,14 @@ void can_ambient_init(FDCAN_HandleTypeDef *hfdcan)
         g_color_change_times[i] = 0;
     }
     
-    /* Загружаем сохраненные настройки из Flash */
-    flash_storage_load((amb_can_state_t *)&g_amb_can);
+    /* Load saved settings from Flash */
+    if (flash_storage_load((amb_can_state_t *)&g_amb_can) == 0) {
+        /* Successfully loaded - initialize last saved state for wear optimization */
+        memcpy(&g_last_saved_state, (const void *)&g_amb_can, sizeof(amb_can_state_t));
+        g_last_saved_valid = 1;
+    }
     
-    /* Инициализация флагов сохранения */
+    /* Initialize save flags */
     g_settings_changed = 0;
     g_last_settings_change_ms = HAL_GetTick();
     
@@ -137,6 +152,15 @@ static void handle_oem(const uint8_t *d, uint8_t len)
     /* Валидация входных данных */
     if (col > 2) return;  /* oem_color должен быть 0-2 */
     if (br_raw > OEM_BRIGHTNESS_MAX) br_raw = OEM_BRIGHTNESS_MAX;  /* Ограничиваем яркость */
+
+    /* Помечаем что первый OEM пакет получен */
+    g_oem_packet_received = 1;
+
+#if AMB_ENABLE_SLEEP_MODE
+    /* Обновляем время последней CAN активности */
+    g_last_can_activity_ms = HAL_GetTick();
+    g_is_sleeping = 0;  /* Пробуждаемся если были в режиме сна */
+#endif
 
     /* Критическая секция для изменения g_amb_can из ISR */
     __disable_irq();
@@ -273,6 +297,15 @@ static void handle_master(const uint8_t *d, uint8_t len)
     if (bank_id > 3) return;  /* bank_id должен быть 0-3 */
     if (oem_col > 2) return;  /* oem_color должен быть 0-2 */
     if (br_raw > 5) br_raw = 5;  /* brightness_raw ограничиваем 0-5 */
+
+    /* Помечаем что данные от master получены (для slave плат) */
+    g_oem_packet_received = 1;
+
+#if AMB_ENABLE_SLEEP_MODE
+    /* Обновляем время последней CAN активности */
+    g_last_can_activity_ms = HAL_GetTick();
+    g_is_sleeping = 0;  /* Пробуждаемся если были в режиме сна */
+#endif
 
     /* Критическая секция для изменения g_amb_can из ISR */
     __disable_irq();
@@ -485,10 +518,10 @@ void can_ambient_update(ws2812_t *ws, scene_player_t *pl)
 {
     if (!pl) return;
 
-    /* Атомарное чтение состояния для защиты от race conditions */
+    /* Atomic copy of state using memcpy (struct assignment may not be atomic) */
     amb_can_state_t state;
     __disable_irq();
-    state = g_amb_can;
+    memcpy(&state, (const void *)&g_amb_can, sizeof(amb_can_state_t));
     __enable_irq();
 
     /* Brightness (always follows OEM) - обновляем theme_dimming */
@@ -656,6 +689,16 @@ uint8_t can_ambient_is_master(void)
     
     /* Иначе используем динамически определенную роль */
     return (g_role == 1) ? 1 : 0;
+}
+
+uint8_t can_ambient_oem_received(void)
+{
+    return g_oem_packet_received;
+}
+
+void can_ambient_reset_oem_received(void)
+{
+    g_oem_packet_received = 0;
 }
 
 void can_ambient_update_role(uint32_t now_ms)
@@ -826,15 +869,39 @@ void can_ambient_update_role(uint32_t now_ms)
             g_oem_indices_dirty = 0;
         }
         
-        if (time_since_change >= FLASH_SAVE_DELAY_MS) {
-            /* Сохраняем только на master плате */
+        if (time_since_change >= AMB_FLASH_SAVE_DELAY_MS) {
+            /* Only save on master board */
             if (can_ambient_is_master()) {
-                /* Атомарное чтение состояния для сохранения */
+                /* Atomic copy of state for saving (memcpy for thread-safety) */
                 amb_can_state_t state_to_save;
                 __disable_irq();
-                state_to_save = g_amb_can;
+                memcpy(&state_to_save, (const void *)&g_amb_can, sizeof(amb_can_state_t));
                 __enable_irq();
-                flash_storage_save(&state_to_save);
+                
+                /* Flash wear optimization: only save if data actually changed */
+                uint8_t data_changed = 0;
+                if (!g_last_saved_valid) {
+                    data_changed = 1;  /* First save */
+                } else {
+                    /* Compare relevant fields */
+                    if (state_to_save.extended_mode != g_last_saved_state.extended_mode ||
+                        state_to_save.bank_id != g_last_saved_state.bank_id ||
+                        state_to_save.theme_index != g_last_saved_state.theme_index ||
+                        state_to_save.last_oem_color != g_last_saved_state.last_oem_color ||
+                        state_to_save.oem_theme_indices[0] != g_last_saved_state.oem_theme_indices[0] ||
+                        state_to_save.oem_theme_indices[1] != g_last_saved_state.oem_theme_indices[1] ||
+                        state_to_save.oem_theme_indices[2] != g_last_saved_state.oem_theme_indices[2]) {
+                        data_changed = 1;
+                    }
+                }
+                
+                if (data_changed) {
+                    if (flash_storage_save(&state_to_save) == 0) {
+                        /* Update last saved state on successful save */
+                        memcpy(&g_last_saved_state, &state_to_save, sizeof(amb_can_state_t));
+                        g_last_saved_valid = 1;
+                    }
+                }
             }
             g_settings_changed = 0;
             g_oem_indices_dirty = 0;
@@ -856,10 +923,10 @@ void can_ambient_send_master_packet(void)
     FDCAN_TxHeaderTypeDef tx_header;
     uint8_t tx_data[8];
 
-    /* Атомарное чтение состояния для защиты от race conditions */
+    /* Atomic copy of state using memcpy (struct assignment may not be atomic) */
     amb_can_state_t state;
     __disable_irq();
-    state = g_amb_can;
+    memcpy(&state, (const void *)&g_amb_can, sizeof(amb_can_state_t));
     __enable_irq();
 
     /* Формируем пакет с текущим состоянием */
@@ -939,10 +1006,10 @@ void can_ambient_send_ext_packet(void)
     FDCAN_TxHeaderTypeDef tx_header;
     uint8_t tx_data[8];
 
-    /* Атомарное чтение состояния для защиты от race conditions */
+    /* Atomic copy of state using memcpy (struct assignment may not be atomic) */
     amb_can_state_t state;
     __disable_irq();
-    state = g_amb_can;
+    memcpy(&state, (const void *)&g_amb_can, sizeof(amb_can_state_t));
     __enable_irq();
 
     /* Формат extended пакета: data[0] = 0x30 | flags, data[1] = bank_id, data[2] = theme_index */
@@ -1005,3 +1072,103 @@ void can_ambient_send_discovery_packet(void)
     HAL_StatusTypeDef status = HAL_FDCAN_AddMessageToTxFifoQ(g_can, &tx_header, tx_data);
     (void)status;  /* Игнорируем ошибку - в production можно добавить retry логику */
 }
+
+/* ========== SLEEP MODE FUNCTIONS ========== */
+
+#if AMB_ENABLE_SLEEP_MODE
+
+uint8_t can_ambient_is_sleeping(void)
+{
+    return g_is_sleeping;
+}
+
+uint8_t can_ambient_should_sleep(void)
+{
+    return g_sleep_requested;
+}
+
+void can_ambient_clear_sleep_request(void)
+{
+    g_sleep_requested = 0;
+}
+
+void can_ambient_mark_awake(void)
+{
+    g_is_sleeping = 0;
+    g_sleep_requested = 0;
+    g_last_can_activity_ms = HAL_GetTick();
+}
+
+uint32_t can_ambient_get_idle_time_ms(void)
+{
+    uint32_t now = HAL_GetTick();
+    if (now >= g_last_can_activity_ms) {
+        return now - g_last_can_activity_ms;
+    }
+    /* Переполнение таймера */
+    return (UINT32_MAX - g_last_can_activity_ms) + now + 1;
+}
+
+void can_ambient_check_sleep_timeout(void)
+{
+    if (g_is_sleeping || g_sleep_requested) {
+        return;  /* Уже спим или уже запрошено */
+    }
+
+    uint32_t idle_ms = can_ambient_get_idle_time_ms();
+    uint32_t timeout_ms = AMB_SLEEP_TIMEOUT_SEC * 1000u;
+
+    if (idle_ms >= timeout_ms) {
+        g_sleep_requested = 1;
+    }
+}
+
+void can_ambient_enter_sleep(void)
+{
+    if (g_is_sleeping) {
+        return;  /* Уже спим */
+    }
+
+    g_is_sleeping = 1;
+
+    /* Отключаем питание ленты */
+    ws_power_set(0);
+
+    /* CAN трансивер в standby mode */
+#ifdef FDCAN1_STBY_Pin
+    HAL_GPIO_WritePin(FDCAN1_STBY_GPIO_Port, FDCAN1_STBY_Pin, GPIO_PIN_SET);
+#endif
+
+    /* Останавливаем FDCAN перед сном для корректного пробуждения */
+    if (g_can) {
+        HAL_FDCAN_Stop(g_can);
+    }
+}
+
+void can_ambient_exit_sleep(void)
+{
+    if (!g_is_sleeping) {
+        return;  /* Не спали */
+    }
+
+    /* CAN трансивер активен */
+#ifdef FDCAN1_STBY_Pin
+    HAL_GPIO_WritePin(FDCAN1_STBY_GPIO_Port, FDCAN1_STBY_Pin, GPIO_PIN_RESET);
+#endif
+
+    /* Перезапускаем FDCAN */
+    if (g_can) {
+        HAL_FDCAN_Start(g_can);
+        HAL_FDCAN_ActivateNotification(g_can, 
+            FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO1_NEW_MESSAGE, 0);
+    }
+
+    /* Включаем питание ленты */
+    ws_power_set(1);
+
+    g_is_sleeping = 0;
+    g_sleep_requested = 0;
+    g_last_can_activity_ms = HAL_GetTick();
+}
+
+#endif /* AMB_ENABLE_SLEEP_MODE */

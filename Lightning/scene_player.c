@@ -14,7 +14,6 @@ uint8_t g_amb_night_mode = 0;   // 0 = день, 1 = ночь
 #if AMB_ENABLE_AUTO_ROTATE
 #define AUTO_ROTATE_INTERVAL_MS (AMB_AUTO_ROTATE_INTERVAL_SEC * 1000u)
 #define CROSSFADE_DURATION_MS   AMB_CROSSFADE_DURATION_MS
-#define MAX_CROSSFADE_LEDS      160u     /* Max LEDs for crossfade temp buffer */
 
 /* External OEM color from main.c - used for auto-rotate bank selection */
 extern oem_color_id_t g_oem_color;
@@ -33,15 +32,6 @@ static float smoothstep5(float t)
     t = clamp01f(t);
     /* 6t^5 - 15t^4 + 10t^3 */
     return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
-}
-
-/* Ultra-smooth ease for crossfade - very slow at start and end, faster in middle */
-static float ease_crossfade(float t)
-{
-    t = clamp01f(t);
-    /* Комбинация: медленный старт + плавная середина + медленный финиш */
-    /* Используем синус для максимально органичного перехода */
-    return (1.0f - cosf(t * 3.14159265f)) * 0.5f;
 }
 
 /* Clear LEDs before zone.first (unused LEDs that DMA still sends) */
@@ -264,15 +254,15 @@ void player_tick(ws2812_t *ws, scene_player_t *pl, uint32_t delta_ms)
                     float blend = cf_progress;  // linear blend for testing
                     float inv_blend = 1.0f - blend;
                     
-                    /* Render current theme to temp buffer (we'll read from grb) */
+                    /* Render current theme to temp buffer (we'll read from rgb) */
                     ws_fx_apply(ws, T->fx_main, pal, &pl->st_scene, delta_ms, first, count);
                     
                     /* Save current theme colors to static buffer */
-                    static uint8_t temp_grb[MAX_CROSSFADE_LEDS * 3];
-                    uint16_t copy_count = (count > MAX_CROSSFADE_LEDS) ? MAX_CROSSFADE_LEDS : count;
-                    uint8_t *curr_colors = (uint8_t*)ws->grb + first * 3;
+                    static uint8_t temp_rgb[AMB_MAX_CROSSFADE_LEDS * 3];
+                    uint16_t copy_count = (count > AMB_MAX_CROSSFADE_LEDS) ? AMB_MAX_CROSSFADE_LEDS : count;
+                    uint8_t *curr_colors = (uint8_t*)ws->rgb + first * 3;
                     for (uint16_t i = 0; i < copy_count * 3; ++i) {
-                        temp_grb[i] = curr_colors[i];
+                        temp_rgb[i] = curr_colors[i];
                     }
                     
                     /* Render next theme */
@@ -283,14 +273,14 @@ void player_tick(ws2812_t *ws, scene_player_t *pl, uint32_t delta_ms)
                      * This preserves brightness even when blending opposite wave phases */
                     for (uint16_t i = 0; i < copy_count; ++i) {
                         uint32_t idx = i * 3u;
-                        uint8_t curr_r = temp_grb[idx + 0];
-                        uint8_t curr_g = temp_grb[idx + 1];
-                        uint8_t curr_b = temp_grb[idx + 2];
+                        uint8_t curr_r = temp_rgb[idx + 0];
+                        uint8_t curr_g = temp_rgb[idx + 1];
+                        uint8_t curr_b = temp_rgb[idx + 2];
                         
                         uint32_t buf_idx = (first + i) * 3u;
-                        uint8_t next_r = ws->grb[buf_idx + 0];
-                        uint8_t next_g = ws->grb[buf_idx + 1];
-                        uint8_t next_b = ws->grb[buf_idx + 2];
+                        uint8_t next_r = ws->rgb[buf_idx + 0];
+                        uint8_t next_g = ws->rgb[buf_idx + 1];
+                        uint8_t next_b = ws->rgb[buf_idx + 2];
                         
                         /* Normalize to 0-1 range */
                         float c_r = curr_r / 255.0f;
@@ -398,9 +388,9 @@ void player_tick(ws2812_t *ws, scene_player_t *pl, uint32_t delta_ms)
         
         for (uint16_t i = 0; i < count; ++i) {
             uint32_t idx = (uint32_t)(first + i) * 3u;
-            uint8_t scene_r = ws->grb[idx + 0];
-            uint8_t scene_g = ws->grb[idx + 1];
-            uint8_t scene_b = ws->grb[idx + 2];
+            uint8_t scene_r = ws->rgb[idx + 0];
+            uint8_t scene_g = ws->rgb[idx + 1];
+            uint8_t scene_b = ws->rgb[idx + 2];
             
             float s_r = scene_r / 255.0f;
             float s_g = scene_g / 255.0f;

@@ -175,6 +175,19 @@ void can_ambient_send_discovery_packet(void);
 uint8_t can_ambient_is_master(void);
 
 /**
+ * @brief Check if first OEM CAN packet was received
+ * @return 1 if OEM packet received, 0 otherwise
+ * @details Used to delay LED startup until CAN data is available.
+ */
+uint8_t can_ambient_oem_received(void);
+
+/**
+ * @brief Reset OEM packet received flag
+ * @details Used after waking from sleep to wait for new CAN data
+ */
+void can_ambient_reset_oem_received(void);
+
+/**
  * @brief Update master/slave role (periodic call from main loop)
  * @param now_ms Current time in milliseconds
  * @details Handles discovery, failover, and automatic role assignment.
@@ -188,6 +201,59 @@ void can_ambient_update_role(uint32_t now_ms);
  * @details Used for failover detection by slaves.
  */
 uint32_t can_ambient_get_last_master_heartbeat_ms(void);
+
+/* ========== SLEEP MODE API ========== */
+#include "features.h"
+
+#if AMB_ENABLE_SLEEP_MODE
+
+/**
+ * @brief Check if system is currently in sleep mode
+ * @return 1 if sleeping, 0 otherwise
+ */
+uint8_t can_ambient_is_sleeping(void);
+
+/**
+ * @brief Check if sleep mode was requested (timeout reached)
+ * @return 1 if sleep requested, 0 otherwise
+ */
+uint8_t can_ambient_should_sleep(void);
+
+/**
+ * @brief Clear sleep request flag
+ */
+void can_ambient_clear_sleep_request(void);
+
+/**
+ * @brief Mark system as awake (reset activity timer)
+ */
+void can_ambient_mark_awake(void);
+
+/**
+ * @brief Get time since last CAN activity
+ * @return Idle time in milliseconds
+ */
+uint32_t can_ambient_get_idle_time_ms(void);
+
+/**
+ * @brief Check if sleep timeout reached and set sleep request flag
+ * @details Call periodically from main loop
+ */
+void can_ambient_check_sleep_timeout(void);
+
+/**
+ * @brief Enter low power sleep mode
+ * @details Turns off LED power, puts CAN transceiver in standby
+ */
+void can_ambient_enter_sleep(void);
+
+/**
+ * @brief Exit sleep mode and restore normal operation
+ * @details Restarts CAN, turns on LED power
+ */
+void can_ambient_exit_sleep(void);
+
+#endif /* AMB_ENABLE_SLEEP_MODE */
 
 #ifdef __cplusplus
 }

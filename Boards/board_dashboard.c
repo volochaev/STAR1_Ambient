@@ -1,35 +1,40 @@
-#include "ambient.h"    // BOARD_TYPE_* definitions
-#include "board_dashboard.h"
-#include "main.h"       // htim1
-#include <string.h>
+/**
+ ******************************************************************************
+ * @file    board_dashboard.c
+ * @brief   Dashboard board implementation
+ * @version 2.1
+ * @date    2025
+ ******************************************************************************
+ */
 
-/* TIM из CubeMX */
+#include "ambient.h"        /* BOARD_TYPE_* definitions */
+#include "board_dashboard.h"
+#include "board_common.h"   /* Common macros with DMA alignment */
+
+/* TIM from CubeMX */
 extern TIM_HandleTypeDef htim1;
 
-/* Макрос длины DMA-буфера для конкретного количества диодов */
-#define ZDMA_LEN(leds)   ((leds) * BYTES_PER_LED * 8u + WS_RESET_SLOTS)
+/* === RGB and DMA buffers for all zones (properly aligned for DMA) ======= */
 
-/* === GRB и DMA буферы для всех линий этого модуля ===================== */
+/* STRIP - main dashboard strip */
+static uint8_t dashboard_strip_fb[DASHBOARD_STRIP_LEDS * BYTES_PER_LED];
+__ALIGNED(4) static uint16_t dashboard_strip_dmaA[BOARD_DMA_BUF_LEN(DASHBOARD_STRIP_LEDS)];
+__ALIGNED(4) static uint16_t dashboard_strip_dmaB[BOARD_DMA_BUF_LEN(DASHBOARD_STRIP_LEDS)];
 
-/* STRIP - основная линия по торпедо */
-static uint8_t  dashboard_strip_fb[DASHBOARD_STRIP_LEDS * BYTES_PER_LED];
-static uint16_t dashboard_strip_dmaA[ZDMA_LEN(DASHBOARD_STRIP_LEDS)];
-static uint16_t dashboard_strip_dmaB[ZDMA_LEN(DASHBOARD_STRIP_LEDS)];
+/* CENTER - center console */
+static uint8_t dashboard_center_fb[DASHBOARD_CENTER_LEDS * BYTES_PER_LED];
+__ALIGNED(4) static uint16_t dashboard_center_dmaA[BOARD_DMA_BUF_LEN(DASHBOARD_CENTER_LEDS)];
+__ALIGNED(4) static uint16_t dashboard_center_dmaB[BOARD_DMA_BUF_LEN(DASHBOARD_CENTER_LEDS)];
 
-/* CENTER - центральная консоль */
-static uint8_t  dashboard_center_fb[DASHBOARD_CENTER_LEDS * BYTES_PER_LED];
-static uint16_t dashboard_center_dmaA[ZDMA_LEN(DASHBOARD_CENTER_LEDS)];
-static uint16_t dashboard_center_dmaB[ZDMA_LEN(DASHBOARD_CENTER_LEDS)];
+/* AC_VENTS - AC vents */
+static uint8_t dashboard_ac_vents_fb[DASHBOARD_AC_VENTS_LEDS * BYTES_PER_LED];
+__ALIGNED(4) static uint16_t dashboard_ac_vents_dmaA[BOARD_DMA_BUF_LEN(DASHBOARD_AC_VENTS_LEDS)];
+__ALIGNED(4) static uint16_t dashboard_ac_vents_dmaB[BOARD_DMA_BUF_LEN(DASHBOARD_AC_VENTS_LEDS)];
 
-/* AC_VENTS - дефлекторы кондиционера */
-static uint8_t  dashboard_ac_vents_fb[DASHBOARD_AC_VENTS_LEDS * BYTES_PER_LED];
-static uint16_t dashboard_ac_vents_dmaA[ZDMA_LEN(DASHBOARD_AC_VENTS_LEDS)];
-static uint16_t dashboard_ac_vents_dmaB[ZDMA_LEN(DASHBOARD_AC_VENTS_LEDS)];
-
-/* FOOTWELL - подсветка ног */
-static uint8_t  dashboard_footwell_fb[DASHBOARD_FOOTWELL_LEDS * BYTES_PER_LED];
-static uint16_t dashboard_footwell_dmaA[ZDMA_LEN(DASHBOARD_FOOTWELL_LEDS)];
-static uint16_t dashboard_footwell_dmaB[ZDMA_LEN(DASHBOARD_FOOTWELL_LEDS)];
+/* FOOTWELL */
+static uint8_t dashboard_footwell_fb[DASHBOARD_FOOTWELL_LEDS * BYTES_PER_LED];
+__ALIGNED(4) static uint16_t dashboard_footwell_dmaA[BOARD_DMA_BUF_LEN(DASHBOARD_FOOTWELL_LEDS)];
+__ALIGNED(4) static uint16_t dashboard_footwell_dmaB[BOARD_DMA_BUF_LEN(DASHBOARD_FOOTWELL_LEDS)];
 
 /* === Экземпляры ws2812_t (фактически физические линии/zones) ========= */
 
@@ -123,7 +128,7 @@ void board_dashboard_led_init(void)
 void board_dashboard_led_render_all(void)
 {
     /* Обычно свет рисует scene_player + zones.c,
-     * а тут мы просто отправляем содержимое всех ws->grb в DMA.
+     * а тут мы просто отправляем содержимое всех ws->rgb в DMA.
      */
 
 	// Главную (g_dashboard_strip) рендерит только player_tick

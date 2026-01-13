@@ -5,43 +5,40 @@
  * @details Implements hardware initialization and zone mapping for the
  *          front-left door ambient lighting module.
  *
- * @version 2.0
+ * @version 2.1
  * @date    2025
  ******************************************************************************
  */
 
-#include "ambient.h"    // BOARD_TYPE_* definitions
+#include "ambient.h"        /* BOARD_TYPE_* definitions */
 #include "board_door_fl.h"
-#include "main.h"       // htim1
-#include <string.h>
+#include "board_common.h"   /* Common macros with DMA alignment */
 
-/* TIM из CubeMX */
+/* TIM from CubeMX */
 extern TIM_HandleTypeDef htim1;
 
-/* Макрос длины DMA-буфера для конкретного количества диодов */
-#define ZDMA_LEN(leds)   ((leds) * BYTES_PER_LED * 8u + WS_RESET_SLOTS)
-
-/* === GRB и DMA буферы для всех линий этой двери ===================== */
+/* === RGB and DMA buffers for all zones (properly aligned for DMA) ======= */
+/* Using macros from board_common.h with __ALIGNED(4) for optimal DMA */
 
 /* STRIP */
-static uint8_t  fl_strip_fb[FL_STRIP_LEDS * BYTES_PER_LED];
-static uint16_t fl_strip_dmaA[ZDMA_LEN(FL_STRIP_LEDS)];
-static uint16_t fl_strip_dmaB[ZDMA_LEN(FL_STRIP_LEDS)];
+static uint8_t fl_strip_fb[FL_STRIP_LEDS * BYTES_PER_LED];
+__ALIGNED(4) static uint16_t fl_strip_dmaA[BOARD_DMA_BUF_LEN(FL_STRIP_LEDS)];
+__ALIGNED(4) static uint16_t fl_strip_dmaB[BOARD_DMA_BUF_LEN(FL_STRIP_LEDS)];
 
 /* HANDLE */
-static uint8_t  fl_handle_fb[FL_HANDLE_LEDS * BYTES_PER_LED];
-static uint16_t fl_handle_dmaA[ZDMA_LEN(FL_HANDLE_LEDS)];
-static uint16_t fl_handle_dmaB[ZDMA_LEN(FL_HANDLE_LEDS)];
+static uint8_t fl_handle_fb[FL_HANDLE_LEDS * BYTES_PER_LED];
+__ALIGNED(4) static uint16_t fl_handle_dmaA[BOARD_DMA_BUF_LEN(FL_HANDLE_LEDS)];
+__ALIGNED(4) static uint16_t fl_handle_dmaB[BOARD_DMA_BUF_LEN(FL_HANDLE_LEDS)];
 
 /* STORAGE */
-static uint8_t  fl_storage_fb[FL_STORAGE_LEDS * BYTES_PER_LED];
-static uint16_t fl_storage_dmaA[ZDMA_LEN(FL_STORAGE_LEDS)];
-static uint16_t fl_storage_dmaB[ZDMA_LEN(FL_STORAGE_LEDS)];
+static uint8_t fl_storage_fb[FL_STORAGE_LEDS * BYTES_PER_LED];
+__ALIGNED(4) static uint16_t fl_storage_dmaA[BOARD_DMA_BUF_LEN(FL_STORAGE_LEDS)];
+__ALIGNED(4) static uint16_t fl_storage_dmaB[BOARD_DMA_BUF_LEN(FL_STORAGE_LEDS)];
 
 /* FOOTWELL */
-static uint8_t  fl_footwell_fb[FL_FOOTWELL_LEDS * BYTES_PER_LED];
-static uint16_t fl_footwell_dmaA[ZDMA_LEN(FL_FOOTWELL_LEDS)];
-static uint16_t fl_footwell_dmaB[ZDMA_LEN(FL_FOOTWELL_LEDS)];
+static uint8_t fl_footwell_fb[FL_FOOTWELL_LEDS * BYTES_PER_LED];
+__ALIGNED(4) static uint16_t fl_footwell_dmaA[BOARD_DMA_BUF_LEN(FL_FOOTWELL_LEDS)];
+__ALIGNED(4) static uint16_t fl_footwell_dmaB[BOARD_DMA_BUF_LEN(FL_FOOTWELL_LEDS)];
 
 /* === Экземпляры ws2812_t (фактически физические линии/zones) ========= */
 
@@ -135,7 +132,7 @@ void board_fl_led_init(void)
 void board_fl_led_render_all(void)
 {
     /* Обычно свет рисует scene_player + zones.c,
-     * а тут мы просто отправляем содержимое всех ws->grb в DMA.
+     * а тут мы просто отправляем содержимое всех ws->rgb в DMA.
      */
 
 	// Главную (g_fl_strip) рендерит только player_tick
