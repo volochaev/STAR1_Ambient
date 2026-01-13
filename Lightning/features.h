@@ -52,12 +52,11 @@ extern uint8_t g_amb_night_mode;
 #define AMB_NIGHT_BRIGHTNESS_SCALE   0.30f  /* Brightness coefficient in night mode (0..1) */
 
 /* ====== SLEEP MODE (low power) ========================================== */
-/* Automatic sleep mode when no CAN activity. Wake up via CAN RX or RTC. */
+/* Automatic sleep mode when no CAN activity. Wake up via CAN RX EXTI. */
 
 #define AMB_ENABLE_SLEEP_MODE       1       /* 1 = enable sleep mode */
 #define AMB_SLEEP_TIMEOUT_SEC       60u     /* Sleep timeout (seconds) */
 #define AMB_SLEEP_FADE_OUT_MS       2000u   /* Fade-out duration before sleep (ms) */
-#define AMB_SLEEP_RTC_WAKEUP_SEC    300u    /* RTC wakeup backup timeout (5 min) */
 
 /* ====== FLASH STORAGE =================================================== */
 /* Settings are saved to Flash with delay to minimize wear. */

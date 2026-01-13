@@ -59,29 +59,25 @@
 /* Private variables ---------------------------------------------------------*/
 FDCAN_HandleTypeDef hfdcan1;
 
+IWDG_HandleTypeDef hiwdg;
+
 TIM_HandleTypeDef htim1;
 DMA_HandleTypeDef hdma_tim1_ch1;
 DMA_HandleTypeDef hdma_tim1_ch2;
 DMA_HandleTypeDef hdma_tim1_ch3;
 DMA_HandleTypeDef hdma_tim1_ch4;
 
-#if AMB_ENABLE_WATCHDOG
-IWDG_HandleTypeDef hiwdg;
-#endif
-
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
-RTC_HandleTypeDef hrtc;
-#endif
-
 /* USER CODE BEGIN PV */
-
 scene_player_t g_player;             // плеер сцен
 ws_theme_id_t g_current_theme;      // текущая тема
 oem_color_id_t g_oem_color;          // текущий "OEM цвет" (amber/blue/white)
 
 uint32_t g_last_tick_ms = 0;   // для delta_ms в player_tick
+
+#if DEMO_MODE
 uint32_t g_last_theme_switch_ms = 0;  // когда последний раз меняли тему (для демо режима)
 static uint8_t g_was_master = 0;  // предыдущий статус master (для отслеживания перехода)
+#endif
 
 #if !DEMO_MODE
 static uint8_t g_waiting_for_can = 1;  // Ждём первый CAN пакет перед запуском ленты
@@ -101,13 +97,7 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_FDCAN1_Init(void);
-#if AMB_ENABLE_WATCHDOG
 static void MX_IWDG_Init(void);
-#endif
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
-static void MX_RTC_Init(void);
-static void RTC_SetWakeupTimer(uint32_t seconds);
-#endif
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -314,12 +304,7 @@ int main(void)
   MX_DMA_Init();
   MX_TIM1_Init();
   MX_FDCAN1_Init();
-#if AMB_ENABLE_WATCHDOG
   MX_IWDG_Init();
-#endif
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
-  MX_RTC_Init();
-#endif
   /* USER CODE BEGIN 2 */
 
 	// 1) Инициализируем board (TIM1 + все ws2812_t, зоны, питание выкл)
@@ -347,7 +332,9 @@ int main(void)
 	// В обычном режиме плеер остаётся в PST_IDLE до получения первого CAN пакета
 
 	g_last_tick_ms = HAL_GetTick();
+#if DEMO_MODE
 	g_last_theme_switch_ms = g_last_tick_ms;
+#endif
 
   /* USER CODE END 2 */
 
@@ -380,7 +367,6 @@ int main(void)
 				extern volatile amb_can_state_t g_amb_can;
 				__disable_irq();
 				oem_color_id_t oem_col = (oem_color_id_t)g_amb_can.oem_color;
-				uint8_t ext_mode = g_amb_can.extended_mode;
 				uint8_t theme_idx = g_amb_can.oem_theme_indices[oem_col];
 				__enable_irq();
 
@@ -473,10 +459,7 @@ int main(void)
 				/* Configure EXTI on CAN RX for wakeup */
 				configure_can_rx_exti_wakeup();
 
-				/* Configure RTC wakeup timer as backup (in case CAN bus is dead) */
-				RTC_SetWakeupTimer(AMB_SLEEP_RTC_WAKEUP_SEC);
-
-				/* Enter STOP mode (wakeup via EXTI from CAN RX or RTC) */
+				/* Enter STOP mode (wakeup via EXTI from CAN RX) */
 				HAL_SuspendTick();
 				HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
 				HAL_ResumeTick();
@@ -484,9 +467,6 @@ int main(void)
 				/* Woke up - restore operation */
 				SystemClock_Config();  /* Restore clock after STOP */
 				restore_can_rx_af();   /* Restore AF for FDCAN */
-				
-				/* Disable RTC wakeup timer */
-				HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
 				
 				can_ambient_exit_sleep();
 
@@ -585,11 +565,6 @@ int main(void)
 			last_discovery_send_ms = now;
 		}
 
-		/* Feed watchdog to prevent reset */
-#if AMB_ENABLE_WATCHDOG
-		HAL_IWDG_Refresh(&hiwdg);
-#endif
-
 		/* Non-blocking delay: use WFI for power saving when loop runs faster than 1ms.
 		 * WFI wakes CPU on any interrupt (CAN, SysTick, DMA, etc.) */
 		if (dt == 0u) {
@@ -597,6 +572,11 @@ int main(void)
 		}
     
 		HAL_Delay(1);
+		
+#if AMB_ENABLE_WATCHDOG
+		/* Feed watchdog to prevent reset */
+		HAL_IWDG_Refresh(&hiwdg);
+#endif
 	}
   /* USER CODE END 3 */
 }
@@ -617,8 +597,9 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV2;
@@ -692,6 +673,43 @@ static void MX_FDCAN1_Init(void)
   /* USER CODE BEGIN FDCAN1_Init 2 */
 
   /* USER CODE END FDCAN1_Init 2 */
+
+}
+
+/**
+  * @brief IWDG Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_IWDG_Init(void)
+{
+
+  /* USER CODE BEGIN IWDG_Init 0 */
+
+  /* USER CODE END IWDG_Init 0 */
+
+  /* USER CODE BEGIN IWDG_Init 1 */
+
+  /* USER CODE END IWDG_Init 1 */
+  hiwdg.Instance = IWDG;
+  hiwdg.Init.Prescaler = IWDG_PRESCALER_64;
+  hiwdg.Init.Window = 4095;
+  hiwdg.Init.Reload = 4095;
+  /* USER CODE BEGIN IWDG_Init 2 */
+#if AMB_ENABLE_WATCHDOG
+  /* Override CubeMX defaults with calculated values from features.h */
+  /* Calculate reload value for desired timeout */
+  /* LSI ~32kHz, Prescaler 64 -> 500 Hz -> 2ms per tick */
+  hiwdg.Init.Reload = (AMB_WATCHDOG_TIMEOUT_MS * 500u) / 1000u;
+  if (hiwdg.Init.Reload > 4095u) {
+      hiwdg.Init.Reload = 4095u;  /* Max value */
+  }
+#endif
+  /* USER CODE END IWDG_Init 2 */
+  if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
 }
 
@@ -854,114 +872,6 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
-#if AMB_ENABLE_WATCHDOG
-/**
- * @brief IWDG Initialization Function
- * @details Configures Independent Watchdog with timeout from features.h.
- *          IWDG clock = LSI (~32 kHz), Prescaler = 64
- *          Timeout = (Prescaler * Reload) / LSI_freq
- *          For 2000ms: Reload = 2000 * 32000 / 64000 = 1000
- */
-static void MX_IWDG_Init(void)
-{
-    hiwdg.Instance = IWDG;
-    hiwdg.Init.Prescaler = IWDG_PRESCALER_64;
-    /* Calculate reload value for desired timeout */
-    /* LSI ~32kHz, Prescaler 64 -> 500 Hz -> 2ms per tick */
-    hiwdg.Init.Reload = (AMB_WATCHDOG_TIMEOUT_MS * 500u) / 1000u;
-    if (hiwdg.Init.Reload > 4095u) {
-        hiwdg.Init.Reload = 4095u;  /* Max value */
-    }
-    hiwdg.Init.Window = 4095;  /* No window mode */
-    if (HAL_IWDG_Init(&hiwdg) != HAL_OK) {
-        Error_Handler();
-    }
-}
-#endif /* AMB_ENABLE_WATCHDOG */
-
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
-/**
- * @brief RTC Initialization Function
- * @details Configures RTC for wakeup timer functionality.
- *          Uses LSI as clock source for simplicity (no external crystal needed).
- */
-static void MX_RTC_Init(void)
-{
-    /* Enable PWR clock */
-    __HAL_RCC_PWR_CLK_ENABLE();
-    
-    /* Enable backup domain access */
-    HAL_PWR_EnableBkUpAccess();
-    
-    /* Enable LSI */
-    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI;
-    RCC_OscInitStruct.LSIState = RCC_LSI_ON;
-    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
-    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
-        Error_Handler();
-    }
-    
-    /* Select LSI as RTC clock source */
-    RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
-    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_RTC;
-    PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
-    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK) {
-        Error_Handler();
-    }
-    
-    /* Enable RTC clock */
-    __HAL_RCC_RTC_ENABLE();
-    
-    /* Configure RTC */
-    hrtc.Instance = RTC;
-    hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
-    hrtc.Init.AsynchPrediv = 127;
-    hrtc.Init.SynchPrediv = 255;  /* LSI/128/256 = ~1 Hz */
-    hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
-    hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
-    hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
-    hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
-    if (HAL_RTC_Init(&hrtc) != HAL_OK) {
-        Error_Handler();
-    }
-    
-    /* Configure EXTI for RTC wakeup */
-    HAL_NVIC_SetPriority(RTC_WKUP_IRQn, 0, 0);
-    HAL_NVIC_EnableIRQ(RTC_WKUP_IRQn);
-}
-
-/**
- * @brief Configure RTC wakeup timer
- * @param seconds Wakeup timeout in seconds
- */
-static void RTC_SetWakeupTimer(uint32_t seconds)
-{
-    if (seconds == 0) return;
-    
-    /* Limit to max ~18 hours (65535 seconds with RTC_WAKEUPCLOCK_CK_SPRE_16BITS) */
-    if (seconds > 65535u) {
-        seconds = 65535u;
-    }
-    
-    /* Deactivate existing timer first */
-    HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
-    
-    /* Configure wakeup timer with 1 Hz clock (after RTC predividers) */
-    if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, seconds - 1, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK) {
-        Error_Handler();
-    }
-}
-
-/**
- * @brief RTC Wakeup IRQ Handler
- */
-void RTC_WKUP_IRQHandler(void)
-{
-    HAL_RTCEx_WakeUpTimerIRQHandler(&hrtc);
-}
-#endif /* AMB_ENABLE_SLEEP_MODE && !DEMO_MODE */
 
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 {
