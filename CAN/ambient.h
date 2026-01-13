@@ -9,7 +9,7 @@
  *
  * @section Protocol Overview
  * The system uses two CAN IDs:
- * - 0x351: OEM packets from vehicle IC (brightness, color)
+ * - 0x325: OEM packets from vehicle IC (brightness, color)
  * - 0x353: Unified Master Protocol (discovery, sync, master, extended packets)
  *
  * @section Master/Slave Architecture
@@ -42,7 +42,7 @@ extern "C" {
 #endif
 
 /* OEM CAN ID (IC → ambient) */
-#define CAN_OEM_ID       0x351U
+#define CAN_OEM_ID       0x325U
 
 /* Extended ambient control - объединен с CAN_MASTER_ID */
 #define CAN_EXT_ID       0x353U  /* тот же ID, различается по типу пакета */
@@ -254,6 +254,19 @@ void can_ambient_enter_sleep(void);
 void can_ambient_exit_sleep(void);
 
 #endif /* AMB_ENABLE_SLEEP_MODE */
+
+/* ========== DEBUG/TESTING API ========== */
+
+/**
+ * @brief Send arbitrary CAN packet for testing (DEBUG ONLY)
+ * @param id CAN message ID
+ * @param data Pointer to message data (max 8 bytes)
+ * @param len Message data length (1-8)
+ * @details This function allows sending any CAN packet for transceiver testing.
+ *          Should be disabled in production builds.
+ * @note Use with caution - can interfere with normal operation!
+ */
+void can_ambient_send_test_packet(uint32_t id, const uint8_t *data, uint8_t len);
 
 #ifdef __cplusplus
 }

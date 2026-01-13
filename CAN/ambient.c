@@ -14,7 +14,7 @@
  *
  * @section CAN Protocol
  * Uses two CAN IDs:
- * - 0x351: OEM packets from vehicle (brightness, color)
+ * - 0x325: OEM packets from vehicle (brightness, color)
  * - 0x353: Unified Master Protocol (discovery, sync, master, extended)
  *
  * @section Extended Mode
@@ -125,7 +125,7 @@ void can_ambient_init(FDCAN_HandleTypeDef *hfdcan)
     f.FilterID2 = 0x7FF;
     HAL_FDCAN_ConfigFilter(g_can, &f);
 
-    /* OEM packet 0x351 (все слушают) */
+    /* OEM packet 0x325 (все слушают) */
     f.FilterIndex = 3;
     f.FilterID1 = CAN_OEM_ID;
     f.FilterID2 = 0x7FF;
@@ -169,7 +169,7 @@ static void handle_oem(const uint8_t *d, uint8_t len)
     g_amb_can.oem_color = col;
     g_amb_can.oem_brightness = (float)br_raw / (float)OEM_BRIGHTNESS_MAX;
 
-    /* При смене цвета в CAN 0x351 меняем тему как в OEM, так и в extended режиме */
+    /* При смене цвета в CAN 0x325 меняем тему как в OEM, так и в extended режиме */
     if (old_color != col) {
         /* В extended режиме сбрасываем bank_id в 0, чтобы тема выбиралась на основе нового цвета */
         if (extended_mode) {

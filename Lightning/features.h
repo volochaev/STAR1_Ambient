@@ -54,7 +54,7 @@ extern uint8_t g_amb_night_mode;
 /* ====== SLEEP MODE (low power) ========================================== */
 /* Automatic sleep mode when no CAN activity. Wake up via CAN RX EXTI. */
 
-#define AMB_ENABLE_SLEEP_MODE       1       /* 1 = enable sleep mode */
+#define AMB_ENABLE_SLEEP_MODE       0      /* 1 = enable sleep mode */
 #define AMB_SLEEP_TIMEOUT_SEC       60u     /* Sleep timeout (seconds) */
 #define AMB_SLEEP_FADE_OUT_MS       2000u   /* Fade-out duration before sleep (ms) */
 
