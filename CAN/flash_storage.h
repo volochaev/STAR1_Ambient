@@ -42,15 +42,20 @@ extern "C" {
 #define FLASH_STORAGE_PAGE_SIZE    0x800U       /* 2KB */
 #define FLASH_STORAGE_MAGIC         0x53544152U  /* "STAR" в ASCII */
 
+/* Количество OEM банков (AMBER, BLUE, WHITE) */
+#define FLASH_OEM_BANK_COUNT    3
+
 /* Структура данных для сохранения в Flash */
 typedef struct {
     uint32_t magic;              /* Magic number для проверки валидности */
     uint32_t crc;                /* CRC32 для проверки целостности */
     uint8_t  extended_mode;      /* Extended режим (0/1) */
     uint8_t  bank_id;            /* Bank ID (0=auto, 1=amber, 2=blue, 3=white) */
-    uint8_t  theme_index;        /* Индекс темы в банке */
+    uint8_t  theme_index;        /* Индекс темы в банке (для extended mode) */
+    uint8_t  last_oem_color;     /* Последний OEM цвет (для cyclic rotation) */
+    uint8_t  oem_theme_indices[FLASH_OEM_BANK_COUNT]; /* Циклические индексы тем для каждого OEM банка */
     uint8_t  reserved;           /* Резерв для выравнивания */
-    uint32_t reserved2[15];      /* Резерв для будущих расширений (до 64 байт) */
+    uint32_t reserved2[14];      /* Резерв для будущих расширений */
 } __attribute__((packed)) flash_storage_data_t;
 
 /* Функции для работы с Flash storage */

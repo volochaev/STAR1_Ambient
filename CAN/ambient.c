@@ -40,7 +40,9 @@ volatile amb_can_state_t g_amb_can = {
     .extended_mode = 0,
     .night_mode = 0,
     .bank_id = 0,
-    .theme_index = 0
+    .theme_index = 0,
+    .last_oem_color = 0xFF,              /* Invalid - первый вызов pick_oem_theme даст 1st theme */
+    .oem_theme_indices = {0xFF, 0xFF, 0xFF}  /* 0xFF + 1 = 0 при первом визите */
 };
 
 static FDCAN_HandleTypeDef *g_can = NULL;
@@ -402,15 +404,51 @@ void can_ambient_process_rx(uint32_t id, uint8_t *data, uint8_t len)
 
 /* ========== THEME SELECTION LOGIC ========== */
 
+/* Флаг что индексы изменились и нужно сохранить в flash */
+static uint8_t g_oem_indices_dirty = 0;
+
 static ws_theme_id_t pick_oem_theme(void)
 {
     /* Атомарное чтение для защиты от race conditions */
-    uint8_t oem_color;
+    uint8_t oem_color, last_oem_color;
+    uint8_t oem_theme_indices[3];
     __disable_irq();
     oem_color = g_amb_can.oem_color;
+    last_oem_color = g_amb_can.last_oem_color;
+    for (int i = 0; i < 3; i++) {
+        oem_theme_indices[i] = g_amb_can.oem_theme_indices[i];
+    }
     __enable_irq();
     
-    return ws_theme_default_for_oem((oem_color_id_t)oem_color);
+    if (oem_color >= OEM_COLOR_MAX) {
+        return ws_theme_default_for_oem(OEM_COLOR_AMBER);
+    }
+    
+    const ws_theme_bank_t *bank = ws_theme_get_bank((oem_color_id_t)oem_color);
+    if (!bank || !bank->themes || bank->count == 0) {
+        return ws_theme_default_for_oem((oem_color_id_t)oem_color);
+    }
+    
+    /* При смене OEM цвета - переходим к следующей теме в новом банке */
+    if (last_oem_color != oem_color) {
+        /* Инкрементируем индекс для нового банка (циклически) */
+        /* 0xFF + 1 = 0 (первый визит даст 1st theme) */
+        uint8_t next_idx = oem_theme_indices[oem_color] + 1;
+        if (next_idx >= bank->count) {
+            next_idx = 0;
+        }
+        
+        /* Обновляем состояние атомарно */
+        __disable_irq();
+        g_amb_can.oem_theme_indices[oem_color] = next_idx;
+        g_amb_can.last_oem_color = oem_color;
+        __enable_irq();
+        
+        oem_theme_indices[oem_color] = next_idx;
+        g_oem_indices_dirty = 1;  /* Пометить для сохранения в flash */
+    }
+    
+    return bank->themes[oem_theme_indices[oem_color]];
 }
 
 static ws_theme_id_t pick_ext_theme(void)
@@ -467,6 +505,17 @@ void can_ambient_update(ws2812_t *ws, scene_player_t *pl)
         theme_now = pick_ext_theme();
     }
 
+    /* В демо режиме для master пропускаем смену темы через CAN - тема управляется через demo_mode_update() */
+    /* Проверяем, не включен ли демо режим (через проверку DEMO_MODE, если он определен) */
+#if defined(DEMO_MODE) && DEMO_MODE == 1
+    if (can_ambient_is_master()) {
+        /* В демо режиме для master не меняем тему через CAN - она управляется через demo_mode_update() */
+        /* Просто обновляем яркость и ночной режим */
+        g_amb_night_mode = state.night_mode;
+        return;
+    }
+#endif
+
     /* Проверяем, завершился ли outro, и нужно ли запустить intro новой темы */
     if (g_has_pending_theme && pl->stage == PST_IDLE) {
         /* outro завершен, запускаем intro новой темы */
@@ -498,16 +547,37 @@ void can_ambient_update(ws2812_t *ws, scene_player_t *pl)
     }
 
     /* Проверяем, завершился ли intro, и нужно ли запустить outro для новой темы */
+    /* НЕ запускаем outro если темы в одном банке (циклическое переключение) */
     if (g_has_pending_theme && pl->stage == PST_SCENE && pl->theme != g_pending_theme) {
-        /* intro завершен, но тема изменилась во время intro, запускаем outro */
-        if (ws) {
-            player_start_outro(ws, pl);
+        /* Темы в одном банке = циклическое переключение, outro не нужен */
+        uint8_t same_bank = ws_theme_same_bank(pl->theme, g_pending_theme);
+#if AMB_ENABLE_AUTO_ROTATE
+        uint8_t skip_outro = same_bank || pl->crossfade_active;
+#else
+        uint8_t skip_outro = same_bank;
+#endif
+        if (!skip_outro) {
+            /* intro завершен, но тема изменилась во время intro, запускаем outro */
+            if (ws) {
+                player_start_outro(ws, pl);
+            }
+            return;
         }
-        return;
     }
 
     /* Check if theme changed */
-    if (pl->theme != theme_now) {
+    /* Если тема в том же банке - НЕ запускаем outro (циклическое переключение) */
+    uint8_t same_bank = ws_theme_same_bank(pl->theme, theme_now);
+#if AMB_ENABLE_AUTO_ROTATE
+    /* При авто-ротации также проверяем crossfade_active */
+    uint8_t theme_really_changed = (pl->theme != theme_now) 
+                                 && !pl->crossfade_active 
+                                 && !same_bank;
+#else
+    uint8_t theme_really_changed = (pl->theme != theme_now) && !same_bank;
+#endif
+    if (theme_really_changed) {
+        /* Тема изменилась на другой банк - используем outro/intro */
         if (ws) {
             /* Если мы в SCENE - делаем плавный переход через outro/intro */
             if (pl->stage == PST_SCENE) {
@@ -555,6 +625,20 @@ void can_ambient_update(ws2812_t *ws, scene_player_t *pl)
                 pl->t0_ms = HAL_GetTick();
             }
         }
+    } else if (pl->theme != theme_now && same_bank) {
+        /* Тема изменилась внутри того же банка (циклическое переключение) */
+#if AMB_ENABLE_AUTO_ROTATE
+        /* При включённой авто-ротации кроссфейд обрабатывается в scene_player.c */
+        /* Просто обновляем тему - scene_player подхватит изменение */
+        if (pl->stage == PST_SCENE && !pl->crossfade_active) {
+            player_start_theme(ws, pl, theme_now);
+        }
+#else
+        /* При выключенной авто-ротации - применяем тему напрямую */
+        if (pl->stage == PST_SCENE) {
+            player_start_theme(ws, pl, theme_now);
+        }
+#endif
     }
 
     /* Night mode -> global dimming flag */
@@ -725,13 +809,21 @@ void can_ambient_update_role(uint32_t now_ms)
     }
     
     /* Сохраняем настройки в Flash, если они изменились и прошло достаточно времени */
-    if (g_settings_changed) {
+    /* g_oem_indices_dirty также триггерит сохранение (циклические индексы тем) */
+    if (g_settings_changed || g_oem_indices_dirty) {
         uint32_t time_since_change;
         if (now_ms >= g_last_settings_change_ms) {
             time_since_change = now_ms - g_last_settings_change_ms;
         } else {
             /* Переполнение uint32_t */
             time_since_change = UINT32_MAX;
+        }
+        
+        /* Для oem_indices используем тот же delay чтобы не писать flash слишком часто */
+        if (g_oem_indices_dirty && !g_settings_changed) {
+            g_last_settings_change_ms = now_ms;
+            g_settings_changed = 1;  /* Использовать стандартный механизм задержки */
+            g_oem_indices_dirty = 0;
         }
         
         if (time_since_change >= FLASH_SAVE_DELAY_MS) {
@@ -745,6 +837,7 @@ void can_ambient_update_role(uint32_t now_ms)
                 flash_storage_save(&state_to_save);
             }
             g_settings_changed = 0;
+            g_oem_indices_dirty = 0;
         }
     }
 }

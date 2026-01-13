@@ -10,6 +10,7 @@
  ******************************************************************************
  */
 
+#include "ambient.h"    // BOARD_TYPE_* definitions
 #include "board_door_fl.h"
 #include "main.h"       // htim1
 #include <string.h>
@@ -138,7 +139,7 @@ void board_fl_led_render_all(void)
      */
 
 	// Главную (g_fl_strip) рендерит только player_tick
-	// ws_render(&g_fl_strip);
+	ws_render(&g_fl_strip);
     ws_render(&g_fl_handle);
     ws_render(&g_fl_storage);
     ws_render(&g_fl_footwell);

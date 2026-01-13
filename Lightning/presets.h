@@ -86,6 +86,13 @@ typedef enum {
 	THEME_ICE_CRYSTAL,
 	THEME_RED_MOON_PREMIUM,
 
+	/* PREMIUM BANK */
+	THEME_DIAMOND_PREMIUM,      /* бриллиантово-белый с бархатным потоком */
+	THEME_SILVER_LOUNGE,        /* серебряный лаунж с мягким пульсом */
+	THEME_PLATINUM_ELEGANCE,    /* платиновая элегантность с бархатным потоком */
+	THEME_AMBER_GOLD_LUXURY,    /* янтарное золото люкс с мягким пульсом */
+	THEME_ROYAL_MAGENTA,        /* королевский пурпур с бархатным потоком */
+
     THEME_MAX_
 } ws_theme_enum_t;
 
@@ -128,6 +135,13 @@ ws_theme_id_t ws_theme_bank_next(const ws_theme_bank_t *bank,
  * (обычно первая тема в соответствующем банке).
  */
 ws_theme_id_t ws_theme_default_for_oem(oem_color_id_t id);
+
+/*
+ * Проверить, принадлежит ли тема тому же банку, что и эталонная тема.
+ * Используется для авто-ротации: если обе темы в одном банке, 
+ * изменение не требует outro/intro.
+ */
+uint8_t ws_theme_same_bank(ws_theme_id_t theme_a, ws_theme_id_t theme_b);
 
 #ifdef __cplusplus
 }

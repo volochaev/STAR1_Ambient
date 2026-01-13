@@ -67,6 +67,10 @@ int flash_storage_load(amb_can_state_t *state)
     state->extended_mode = flash_data->extended_mode;
     state->bank_id = flash_data->bank_id;
     state->theme_index = flash_data->theme_index;
+    state->last_oem_color = flash_data->last_oem_color;
+    for (int i = 0; i < FLASH_OEM_BANK_COUNT; i++) {
+        state->oem_theme_indices[i] = flash_data->oem_theme_indices[i];
+    }
     
     return 0;
 }
@@ -87,6 +91,10 @@ int flash_storage_save(const amb_can_state_t *state)
     data.extended_mode = state->extended_mode;
     data.bank_id = state->bank_id;
     data.theme_index = state->theme_index;
+    data.last_oem_color = state->last_oem_color;
+    for (int i = 0; i < FLASH_OEM_BANK_COUNT; i++) {
+        data.oem_theme_indices[i] = state->oem_theme_indices[i];
+    }
     
     /* Вычисляем CRC (без поля CRC) */
     data.crc = crc32_calculate((const uint8_t *)&data, sizeof(flash_storage_data_t) - sizeof(uint32_t));

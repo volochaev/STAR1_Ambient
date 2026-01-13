@@ -37,7 +37,9 @@ void ws_oneshot_start(ws2812_t        *ws,
                       fx_id_t          fx_id,
                       const ws_palette_t *pal,
                       float            base_br,
-                      uint32_t         duration_ms);
+                      uint32_t         duration_ms,
+                      uint16_t         first,
+                      uint16_t         count);
 
 uint8_t ws_oneshot_tick(ws2812_t *ws, oneshot_t *os);
 
@@ -45,7 +47,9 @@ void ws_fx_apply(ws2812_t           *ws,
                  fx_id_t             fx_id,
                  const ws_palette_t *pal,
                  fx_state_t         *st,
-                 uint32_t            delta_ms);
+                 uint32_t            delta_ms,
+                 uint16_t            first,
+                 uint16_t            count);
 
 #ifdef __cplusplus
 }

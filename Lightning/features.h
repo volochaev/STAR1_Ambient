@@ -36,6 +36,12 @@ extern "C" {
 
 #define AMB_ENABLE_ZONE_FX      1   /* 1 = живые эффекты для зон (breath/flow) */
 
+/* ====== AUTO-ROTATE (theme cycling within bank) ======================== */
+
+#define AMB_ENABLE_AUTO_ROTATE  1   /* 1 = авто-ротация тем каждые N минут */
+#define AMB_AUTO_ROTATE_INTERVAL_SEC   10u   /* интервал смены темы (секунды) */
+#define AMB_CROSSFADE_DURATION_MS     5000u   /* длительность кроссфейда (мс) - 5 сек для плавности */
+
 /* ====== NIGHT MODE (runtime) =========================================== */
 /* Включается/выключается по CAN.
  * По умолчанию: выкл.

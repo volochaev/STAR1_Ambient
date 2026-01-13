@@ -1,3 +1,4 @@
+#include "ambient.h"    // BOARD_TYPE_* definitions
 #include "board_dashboard.h"
 #include "main.h"       // htim1
 #include <string.h>

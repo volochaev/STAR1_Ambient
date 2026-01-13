@@ -107,6 +107,10 @@ typedef struct {
 
     uint8_t bank_id;         /**< Bank ID: 0=auto from OEM, 1=Amber, 2=Blue, 3=White */
     uint8_t theme_index;     /**< Theme index inside bank */
+    
+    /* Cyclic theme rotation per OEM bank */
+    uint8_t last_oem_color;        /**< Last OEM color for detecting bank change */
+    uint8_t oem_theme_indices[3];  /**< Cyclic theme index for each OEM bank */
 } amb_can_state_t;
 
 /** @brief Global CAN ambient state (volatile for thread-safety) */

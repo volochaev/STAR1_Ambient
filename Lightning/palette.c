@@ -6,47 +6,61 @@
 
 /* Simple MB-inspired palettes (very rough approximations) */
 
+/* Sunset Amber – мягкий янтарный закат (премиум версия) */
 static const ws_pal_stop_t PAL_SUNSET_AMBER[] = {
-    { 0.00f, 255, 120,  10 },
-    { 0.50f, 255,  80,  20 },
-    { 1.00f, 255,  40,  10 },
+    { 0.00f, 240, 130,  30 },  // мягкий тёплый янтарь
+    { 0.40f, 250, 140,  50 },  // светлее, более золотистый
+    { 0.75f, 255, 160,  60 },  // мягкое золото
+    { 1.00f, 255, 180,  80 },  // светлый янтарный
 };
 
+/* Ocean Blue – мягкий океанский синий (премиум версия) */
 static const ws_pal_stop_t PAL_OCEAN_BLUE[] = {
-    { 0.00f,   0,  40, 255 },
-    { 0.50f,   0, 100, 255 },
-    { 1.00f,   0, 180, 255 },
+    { 0.00f,  20,  60, 240 },  // глубокий, но не чёрный
+    { 0.40f,  40, 100, 250 },  // мягкий синий
+    { 0.75f,  60, 140, 255 },  // светлый океанский
+    { 1.00f,  80, 170, 255 },  // небесно-голубой
 };
 
+/* Red Moon – мягкий красный закат (премиум версия) */
 static const ws_pal_stop_t PAL_RED_MOON[] = {
-    { 0.00f, 255,  20,  20 },
-    { 0.50f, 255,  10,  60 },
-    { 1.00f, 255,   0,   0 },
+    { 0.00f, 220,  60,  50 },  // мягкий тёплый красный
+    { 0.40f, 240,  80,  70 },  // более светлый
+    { 0.75f, 250, 100,  90 },  // розово-красный
+    { 1.00f, 255, 120, 110 },  // светлый коралловый
 };
 
+/* Purple Silk – мягкий фиолетовый шёлк (премиум версия) */
 static const ws_pal_stop_t PAL_PURPLE_SILK[] = {
-    { 0.00f, 120,   0, 255 },
-    { 0.50f, 180,  40, 255 },
-    { 1.00f, 255,  80, 255 },
+    { 0.00f, 100,  40, 200 },  // глубокий фиолетовый с мягкостью
+    { 0.40f, 140,  60, 230 },  // более светлый
+    { 0.75f, 180,  90, 250 },  // яркий, но мягкий
+    { 1.00f, 220, 130, 255 },  // светлый лавандовый
 };
 
+/* Glacier – ледяной голубой (премиум версия) */
 static const ws_pal_stop_t PAL_GLACIER[] = {
-    { 0.00f, 200, 230, 255 },
-    { 0.50f, 180, 255, 255 },
-    { 1.00f, 140, 220, 255 },
+    { 0.00f, 210, 235, 255 },  // мягкий холодный белый
+    { 0.40f, 220, 245, 255 },  // светлее
+    { 0.75f, 230, 250, 255 },  // очень светлый голубой
+    { 1.00f, 240, 252, 255 },  // почти белый с голубым
 };
 
+/* Energize – мягкая радужная палитра (премиум версия) */
 static const ws_pal_stop_t PAL_ENERGIZE[] = {
-    { 0.00f, 255,  40,  40 },
-    { 0.25f, 255, 180,   0 },
-    { 0.50f,  40, 255,  40 },
-    { 0.75f,   0, 180, 255 },
-    { 1.00f, 200,  40, 255 },
+    { 0.00f, 220,  80,  80 },  // мягкий красный
+    { 0.20f, 250, 150,  60 },  // тёплый оранжевый
+    { 0.40f, 240, 200,  80 },  // мягкий жёлтый
+    { 0.60f, 120, 220, 140 },  // мягкий зелёный
+    { 0.80f,  80, 160, 240 },  // мягкий синий
+    { 1.00f, 180, 100, 230 },  // мягкий фиолетовый
 };
 
+/* Polar White – полярный белый (премиум версия) */
 static const ws_pal_stop_t PAL_POLAR_WHITE[] = {
-    { 0.00f, 255, 255, 255 },
-    { 1.00f, 240, 240, 255 },
+    { 0.00f, 250, 250, 255 },  // мягкий белый с лёгким голубым
+    { 0.50f, 255, 255, 255 },  // чистый белый
+    { 1.00f, 245, 245, 250 },  // мягкий белый
 };
 
 /* Глубокий ночной синий: от почти чёрно-синего к яркому небесно-синему */
@@ -81,18 +95,133 @@ static const ws_pal_stop_t PAL_ROSE[] = {
     { 1.00f, 255, 170, 120 },  // розово-золотой
 };
 
+/* Diamond White – бриллиантово-белый с холодными оттенками (W223/EQS стиль) */
+static const ws_pal_stop_t PAL_DIAMOND_WHITE[] = {
+    { 0.00f, 245, 250, 255 },  // холодный белый с голубым оттенком
+    { 0.35f, 255, 255, 255 },  // чистый белый
+    { 0.70f, 250, 248, 255 },  // слегка фиолетовый оттенок
+    { 1.00f, 240, 245, 255 },  // мягкий голубовато-белый
+};
+
+/* Silver Mist – серебряный туман, нейтральный металлик */
+static const ws_pal_stop_t PAL_SILVER_MIST[] = {
+    { 0.00f, 180, 185, 190 },  // тёмное серебро
+    { 0.40f, 220, 225, 230 },  // среднее серебро
+    { 0.75f, 240, 245, 250 },  // светлое серебро
+    { 1.00f, 255, 255, 255 },  // почти белый металлик
+};
+
+/* Platinum – платина, элегантный серый с теплым оттенком */
+static const ws_pal_stop_t PAL_PLATINUM[] = {
+    { 0.00f, 200, 200, 205 },  // тёплый серый
+    { 0.40f, 230, 230, 235 },  // светлый платиновый
+    { 0.75f, 245, 245, 248 },  // почти белый с теплом
+    { 1.00f, 255, 252, 248 },  // платиново-белый с легким кремом
+};
+
+/* Amber Gold – янтарное золото, более насыщенное чем COPPER_GOLD */
+static const ws_pal_stop_t PAL_AMBER_GOLD[] = {
+    { 0.00f, 180, 100,  20 },  // глубокое янтарное золото
+    { 0.35f, 220, 140,  40 },  // ярче
+    { 0.70f, 255, 180,  60 },  // насыщенное золото
+    { 1.00f, 255, 220, 120 },  // светлое янтарное золото
+};
+
+/* Magenta Royal – королевский пурпур, глубокий и насыщенный */
+static const ws_pal_stop_t PAL_MAGENTA_ROYAL[] = {
+    { 0.00f,  80,   0,  80 },  // глубокий фиолетовый
+    { 0.35f, 140,  20, 140 },  // насыщенный пурпур
+    { 0.70f, 200,  60, 200 },  // яркий королевский пурпур
+    { 1.00f, 255, 120, 255 },  // светлый маджента-розовый
+};
+
+/* =========================================================================
+ * W223/EQS PREMIUM PALETTES
+ * ========================================================================= */
+
+/* Aurora Borealis – северное сияние с магическими переливами
+ * Вдохновлено реальным северным сиянием: зелёный -> голубой -> фиолетовый
+ */
+static const ws_pal_stop_t PAL_AURORA_BOREALIS[] = {
+    { 0.00f,  20, 180,  80 },  // мягкий изумрудный
+    { 0.20f,  40, 220, 140 },  // яркий аврора-зелёный
+    { 0.40f,  60, 200, 200 },  // бирюзовый переход
+    { 0.60f,  80, 160, 240 },  // небесно-голубой
+    { 0.80f, 140, 100, 220 },  // лавандово-синий
+    { 1.00f, 180,  60, 200 },  // мягкий фиолетовый
+};
+
+/* Champagne Gold – тёплый перламутровый золотистый
+ * Элегантный шампань с розовыми переливами, как пузырьки в бокале
+ */
+static const ws_pal_stop_t PAL_CHAMPAGNE_GOLD[] = {
+    { 0.00f, 255, 220, 180 },  // светлый шампань
+    { 0.25f, 255, 200, 150 },  // золотистый шампань
+    { 0.50f, 250, 190, 160 },  // розовый оттенок
+    { 0.75f, 255, 210, 170 },  // перламутровый
+    { 1.00f, 255, 230, 200 },  // кремовый шампань
+};
+
+/* Deep Burgundy – глубокий бордо с винным оттенком
+ * Насыщенный винный цвет для роскошного ощущения
+ */
+static const ws_pal_stop_t PAL_DEEP_BURGUNDY[] = {
+    { 0.00f,  80,  10,  20 },  // глубокий бордо
+    { 0.30f, 140,  25,  40 },  // насыщенный винный
+    { 0.60f, 180,  40,  60 },  // светлый бордо
+    { 0.85f, 200,  60,  80 },  // розово-винный
+    { 1.00f, 220,  80, 100 },  // мягкий коралловый акцент
+};
+
+/* Emerald Forest – изумрудный лес с тёплыми акцентами
+ * Глубокий зелёный с золотистыми отблесками
+ */
+static const ws_pal_stop_t PAL_EMERALD_FOREST[] = {
+    { 0.00f,  10,  80,  40 },  // глубокий лесной
+    { 0.25f,  30, 140,  60 },  // насыщенный изумруд
+    { 0.50f,  50, 180,  80 },  // яркий изумрудный
+    { 0.75f,  80, 160,  70 },  // с золотистым оттенком
+    { 1.00f, 120, 180, 100 },  // мягкий лаймово-золотой
+};
+
+/* Ice Sapphire – ледяной сапфировый синий
+ * Холодный, кристально чистый синий с ледяными акцентами
+ */
+static const ws_pal_stop_t PAL_ICE_SAPPHIRE[] = {
+    { 0.00f,  20,  60, 180 },  // глубокий сапфир
+    { 0.25f,  40, 100, 220 },  // насыщенный синий
+    { 0.50f,  80, 150, 255 },  // яркий сапфировый
+    { 0.75f, 140, 200, 255 },  // ледяной голубой
+    { 1.00f, 200, 230, 255 },  // кристальный белый-голубой
+};
+
 static const ws_palette_t G_PALS[WSPAL_MAX_] = {
-    [WSPAL_MB_SUNSET_AMBER] = { PAL_SUNSET_AMBER,  (uint8_t)(sizeof(PAL_SUNSET_AMBER)/sizeof(PAL_SUNSET_AMBER[0])) },
-    [WSPAL_MB_OCEAN_BLUE]   = { PAL_OCEAN_BLUE,    (uint8_t)(sizeof(PAL_OCEAN_BLUE)/sizeof(PAL_OCEAN_BLUE[0])) },
-    [WSPAL_MB_RED_MOON]     = { PAL_RED_MOON,      (uint8_t)(sizeof(PAL_RED_MOON)/sizeof(PAL_RED_MOON[0])) },
-    [WSPAL_MB_PURPLE_SILK]  = { PAL_PURPLE_SILK,   (uint8_t)(sizeof(PAL_PURPLE_SILK)/sizeof(PAL_PURPLE_SILK[0])) },
-    [WSPAL_MB_GLACIER]      = { PAL_GLACIER,       (uint8_t)(sizeof(PAL_GLACIER)/sizeof(PAL_GLACIER[0])) },
-    [WSPAL_MB_ENERGIZE]     = { PAL_ENERGIZE,      (uint8_t)(sizeof(PAL_ENERGIZE)/sizeof(PAL_ENERGIZE[0])) },
-    [WSPAL_MB_POLAR_WHITE]  = { PAL_POLAR_WHITE,   (uint8_t)(sizeof(PAL_POLAR_WHITE)/sizeof(PAL_POLAR_WHITE[0])) },
-    [WSPAL_MB_NIGHT_BLUE] 	= { PAL_NIGHT_BLUE,	   (uint8_t)(sizeof(PAL_NIGHT_BLUE) / sizeof(PAL_NIGHT_BLUE[0])) },
-    [WSPAL_MB_HYACINTH] 	= { PAL_HYACINTH,	   (uint8_t)(sizeof(PAL_HYACINTH) / sizeof(PAL_HYACINTH[0])) },
-    [WSPAL_MB_COPPER_GOLD] 	= { PAL_COPPER_GOLD,   (uint8_t)(sizeof(PAL_COPPER_GOLD) / sizeof(PAL_COPPER_GOLD[0])) },
-    [WSPAL_MB_ROSE] 		= { PAL_ROSE, 		   (uint8_t)(sizeof(PAL_ROSE) / sizeof(PAL_ROSE[0])) },
+    /* Classic Mercedes palettes */
+    [WSPAL_MB_SUNSET_AMBER]  = { PAL_SUNSET_AMBER,    (uint8_t)(sizeof(PAL_SUNSET_AMBER)/sizeof(PAL_SUNSET_AMBER[0])) },
+    [WSPAL_MB_OCEAN_BLUE]    = { PAL_OCEAN_BLUE,      (uint8_t)(sizeof(PAL_OCEAN_BLUE)/sizeof(PAL_OCEAN_BLUE[0])) },
+    [WSPAL_MB_RED_MOON]      = { PAL_RED_MOON,        (uint8_t)(sizeof(PAL_RED_MOON)/sizeof(PAL_RED_MOON[0])) },
+    [WSPAL_MB_PURPLE_SILK]   = { PAL_PURPLE_SILK,     (uint8_t)(sizeof(PAL_PURPLE_SILK)/sizeof(PAL_PURPLE_SILK[0])) },
+    [WSPAL_MB_GLACIER]       = { PAL_GLACIER,         (uint8_t)(sizeof(PAL_GLACIER)/sizeof(PAL_GLACIER[0])) },
+    [WSPAL_MB_ENERGIZE]      = { PAL_ENERGIZE,        (uint8_t)(sizeof(PAL_ENERGIZE)/sizeof(PAL_ENERGIZE[0])) },
+    [WSPAL_MB_POLAR_WHITE]   = { PAL_POLAR_WHITE,     (uint8_t)(sizeof(PAL_POLAR_WHITE)/sizeof(PAL_POLAR_WHITE[0])) },
+    [WSPAL_MB_NIGHT_BLUE]    = { PAL_NIGHT_BLUE,      (uint8_t)(sizeof(PAL_NIGHT_BLUE)/sizeof(PAL_NIGHT_BLUE[0])) },
+    [WSPAL_MB_HYACINTH]      = { PAL_HYACINTH,        (uint8_t)(sizeof(PAL_HYACINTH)/sizeof(PAL_HYACINTH[0])) },
+    [WSPAL_MB_COPPER_GOLD]   = { PAL_COPPER_GOLD,     (uint8_t)(sizeof(PAL_COPPER_GOLD)/sizeof(PAL_COPPER_GOLD[0])) },
+    [WSPAL_MB_ROSE]          = { PAL_ROSE,            (uint8_t)(sizeof(PAL_ROSE)/sizeof(PAL_ROSE[0])) },
+
+    /* Premium palettes */
+    [WSPAL_MB_DIAMOND_WHITE] = { PAL_DIAMOND_WHITE,   (uint8_t)(sizeof(PAL_DIAMOND_WHITE)/sizeof(PAL_DIAMOND_WHITE[0])) },
+    [WSPAL_MB_SILVER_MIST]   = { PAL_SILVER_MIST,     (uint8_t)(sizeof(PAL_SILVER_MIST)/sizeof(PAL_SILVER_MIST[0])) },
+    [WSPAL_MB_PLATINUM]      = { PAL_PLATINUM,        (uint8_t)(sizeof(PAL_PLATINUM)/sizeof(PAL_PLATINUM[0])) },
+    [WSPAL_MB_AMBER_GOLD]    = { PAL_AMBER_GOLD,      (uint8_t)(sizeof(PAL_AMBER_GOLD)/sizeof(PAL_AMBER_GOLD[0])) },
+    [WSPAL_MB_MAGENTA_ROYAL] = { PAL_MAGENTA_ROYAL,   (uint8_t)(sizeof(PAL_MAGENTA_ROYAL)/sizeof(PAL_MAGENTA_ROYAL[0])) },
+
+    /* W223/EQS Premium palettes */
+    [WSPAL_AURORA_BOREALIS]  = { PAL_AURORA_BOREALIS, (uint8_t)(sizeof(PAL_AURORA_BOREALIS)/sizeof(PAL_AURORA_BOREALIS[0])) },
+    [WSPAL_CHAMPAGNE_GOLD]   = { PAL_CHAMPAGNE_GOLD,  (uint8_t)(sizeof(PAL_CHAMPAGNE_GOLD)/sizeof(PAL_CHAMPAGNE_GOLD[0])) },
+    [WSPAL_DEEP_BURGUNDY]    = { PAL_DEEP_BURGUNDY,   (uint8_t)(sizeof(PAL_DEEP_BURGUNDY)/sizeof(PAL_DEEP_BURGUNDY[0])) },
+    [WSPAL_EMERALD_FOREST]   = { PAL_EMERALD_FOREST,  (uint8_t)(sizeof(PAL_EMERALD_FOREST)/sizeof(PAL_EMERALD_FOREST[0])) },
+    [WSPAL_ICE_SAPPHIRE]     = { PAL_ICE_SAPPHIRE,    (uint8_t)(sizeof(PAL_ICE_SAPPHIRE)/sizeof(PAL_ICE_SAPPHIRE[0])) },
 };
 
 const ws_palette_t* ws_palette_get(ws_palette_id_t id)

@@ -32,6 +32,7 @@
 #include "palette.h"
 #include "presets.h"
 #include "effects.h"
+#include "features.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,6 +43,15 @@ void player_start_theme(ws2812_t *ws, scene_player_t *pl, ws_theme_id_t theme);
 void player_start_intro(ws2812_t *ws, scene_player_t *pl);
 void player_start_outro(ws2812_t *ws, scene_player_t *pl);
 void player_tick(ws2812_t *ws, scene_player_t *pl, uint32_t delta_ms);
+
+#if AMB_ENABLE_AUTO_ROTATE
+/* Auto-rotate control (enabled via AMB_ENABLE_AUTO_ROTATE in features.h)
+ * Note: Uses global g_oem_color from main.c for bank selection.
+ * Auto-rotate is automatically enabled when AMB_ENABLE_AUTO_ROTATE=1.
+ * These functions are optional - for manual control if needed. */
+void player_set_auto_rotate(scene_player_t *pl, uint8_t enable);
+void player_trigger_next_theme(scene_player_t *pl);  /* Manual trigger for next theme with crossfade */
+#endif
 
 #ifdef __cplusplus
 }

@@ -38,20 +38,35 @@ typedef enum {
 
 /* Effect identifiers */
 typedef enum {
+    /* Basic effects */
     FX_SOLID_GRADIENT = 0,
     FX_GRADIENT_FLOW,
     FX_SOFT_BREATHE,
     FX_DUAL_ZONE,
     FX_TWIN_WAVE,
+
+    /* Mercedes-inspired continuous effects */
     FX_MB_OCEAN_FLOW,
     FX_MB_TWO_TONE_WAVE,
     FX_MB_ENERGIZE_PULSE,
+    FX_MB_VELVET_FLOW,        /* бархатный поток - премиальная плавность */
+    FX_MB_GENTLE_PULSE,       /* мягкий пульс - элегантная пульсация */
+
+    /* W223/EQS Premium effects */
+    FX_AURORA,                /* северное сияние - несколько синусоид с разными фазами */
+    FX_CASCADE,               /* каскад - волна яркости, падающая от начала к концу */
+    FX_SPARKLE,               /* мерцание - редкие вспышки отдельных LED */
+    FX_BREATHE_WAVE,          /* волна дыхания - движущаяся волна яркости */
+    FX_COLOR_MORPH,           /* морфинг цвета - плавное перетекание между зонами палитры */
+
+    /* One-shot effects */
     FX_WELCOME_SWEEP,
     FX_GOODBYE_FADE,
     FX_MB_WELCOME,
     FX_MB_GOODBYE,
-	FX_WELCOME,
+    FX_WELCOME,
     FX_GOODBYE,
+
     FX_MAX_
 } fx_id_t;
 
@@ -62,6 +77,15 @@ typedef enum {
 #define FX_MB_DUO_FLOW        FX_DUAL_ZONE
 #define FX_MB_SOFT_BREATHE    FX_SOFT_BREATHE
 #define FX_MB_ENERGIZE        FX_MB_ENERGIZE_PULSE
+#define FX_MB_VELVET          FX_MB_VELVET_FLOW
+#define FX_MB_GENTLE          FX_MB_GENTLE_PULSE
+
+/* W223/EQS Premium aliases */
+#define FX_MB_AURORA          FX_AURORA
+#define FX_MB_CASCADE         FX_CASCADE
+#define FX_MB_SPARKLE         FX_SPARKLE
+#define FX_MB_BREATHE_WAVE    FX_BREATHE_WAVE
+#define FX_MB_COLOR_MORPH     FX_COLOR_MORPH
 
 /* FX state */
 typedef struct {
@@ -83,6 +107,8 @@ typedef struct {
     const ws_palette_t *pal;
     uint32_t         start_ms;
     uint32_t         duration_ms;
+    uint16_t         first;      /* first LED index in zone */
+    uint16_t         count;      /* LED count in zone */
 } oneshot_t;
 
 /* Scene player */
@@ -111,6 +137,17 @@ typedef struct {
     oneshot_t outro;
 
     fx_state_t st_scene;
+
+    /* --- Auto-rotate / Crossfade support --- */
+    uint8_t       auto_rotate_enabled;   /* 0 = manual, 1 = auto-rotate within bank */
+    uint8_t       oem_color;             /* current OEM color (bank selector) */
+    uint32_t      scene_start_ms;        /* when current scene started (for auto-rotate timer) */
+    
+    /* Crossfade state */
+    uint8_t       crossfade_active;      /* 1 = crossfade in progress */
+    ws_theme_id_t theme_next;            /* next theme during crossfade */
+    fx_state_t    st_scene_next;         /* effect state for next theme */
+    uint32_t      crossfade_start_ms;    /* when crossfade started */
 } scene_player_t;
 
 #ifndef CLAMP01

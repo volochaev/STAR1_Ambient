@@ -11,9 +11,11 @@
  * Colors are interpolated between stops for smooth gradients.
  *
  * @section Available Palettes
- * - Sunset Amber, Ocean Blue, Red Moon, Purple Silk
- * - Glacier, Energize, Polar White, Night Blue
- * - Hyacinth, Copper Gold, Rose
+ * Classic: Sunset Amber, Ocean Blue, Red Moon, Purple Silk
+ * Classic: Glacier, Energize, Polar White, Night Blue
+ * Classic: Hyacinth, Copper Gold, Rose
+ * Premium: Diamond White, Silver Mist, Platinum, Amber Gold, Magenta Royal
+ * W223/EQS: Aurora Borealis, Champagne Gold, Deep Burgundy, Emerald Forest, Ice Sapphire
  *
  * @version 2.0
  * @date    2025
@@ -39,6 +41,7 @@ typedef struct ws_palette_s {
 } ws_palette_t;
 
 typedef enum {
+    /* Classic Mercedes palettes */
     WSPAL_MB_SUNSET_AMBER = 0,
     WSPAL_MB_OCEAN_BLUE,
     WSPAL_MB_RED_MOON,
@@ -50,6 +53,21 @@ typedef enum {
     WSPAL_MB_HYACINTH,        /* фиолетово-розовый MB Hyacinth */
     WSPAL_MB_COPPER_GOLD,     /* медно-золотая */
     WSPAL_MB_ROSE,            /* мягкий розово-золотистый */
+
+    /* Premium palettes */
+    WSPAL_MB_DIAMOND_WHITE,   /* бриллиантово-белый с холодными оттенками */
+    WSPAL_MB_SILVER_MIST,     /* серебряный туман, нейтральный металлик */
+    WSPAL_MB_PLATINUM,        /* платина, элегантный серый с теплым оттенком */
+    WSPAL_MB_AMBER_GOLD,      /* янтарное золото, насыщенное */
+    WSPAL_MB_MAGENTA_ROYAL,   /* королевский пурпур, глубокий и насыщенный */
+
+    /* W223/EQS Premium palettes */
+    WSPAL_AURORA_BOREALIS,    /* северное сияние - зелёный/голубой/фиолетовый */
+    WSPAL_CHAMPAGNE_GOLD,     /* шампань - тёплый перламутровый золотистый */
+    WSPAL_DEEP_BURGUNDY,      /* глубокий бордо с винным оттенком */
+    WSPAL_EMERALD_FOREST,     /* изумрудный лес с тёплыми акцентами */
+    WSPAL_ICE_SAPPHIRE,       /* ледяной сапфировый синий */
+
     WSPAL_MAX_
 } ws_palette_id_t;
 

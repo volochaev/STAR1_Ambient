@@ -46,12 +46,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
-/* Демо режим: автоматическое переключение тем каждые 20 секунд (только для master) */
-/* Установите в 0 для продакшн режима (управление только через CAN) */
-#ifndef DEMO_MODE
-#define DEMO_MODE  0  /* 0 = production mode, 1 = demo mode */
-#endif
+/* DEMO_MODE теперь определен в main.h */
 
 /* USER CODE END PD */
 
@@ -77,6 +72,7 @@ oem_color_id_t g_oem_color;          // текущий "OEM цвет" (amber/blu
 
 uint32_t g_last_tick_ms = 0;   // для delta_ms в player_tick
 uint32_t g_last_theme_switch_ms = 0;  // когда последний раз меняли тему (для демо режима)
+static uint8_t g_was_master = 0;  // предыдущий статус master (для отслеживания перехода)
 
 /* USER CODE END PV */
 
@@ -170,14 +166,38 @@ static void board_led_render_all(void)
 static void demo_mode_update(uint32_t now_ms)
 {
 #if DEMO_MODE
-    if (!can_ambient_is_master()) {
+    uint8_t is_master = can_ambient_is_master();
+    
+    // Если плата только что стала master, сбрасываем таймер переключения
+    if (is_master && !g_was_master) {
+        g_last_theme_switch_ms = now_ms;
+        g_was_master = 1;
+        return;  // Не переключаем тему сразу после становления master
+    }
+    
+    g_was_master = is_master;
+    
+    if (!is_master) {
         return;  // Демо режим работает только на master
     }
 
     // Переключение темы раз в 20 секунд
-    if ((now_ms - g_last_theme_switch_ms) > 20000u) {
+    if ((now_ms - g_last_theme_switch_ms) >= 20000u) {
         ws2812_t *main_strip = get_main_strip();
         if (main_strip) {
+            // В демо режиме используем текущий g_oem_color (начальное значение BLUE)
+            // и обновляем его из CAN только если пришло реальное значение (не 0 = дефолтное AMBER)
+            extern volatile amb_can_state_t g_amb_can;
+            __disable_irq();
+            oem_color_id_t oem_col = (oem_color_id_t)g_amb_can.oem_color;
+            __enable_irq();
+            
+            // Обновляем g_oem_color только если пришло реальное значение через CAN (не 0 = дефолтное)
+            // Это предотвращает переключение на AMBER при старте, если g_oem_color был инициализирован как BLUE
+            if (oem_col != 0 && oem_col != g_oem_color) {
+                g_oem_color = oem_col;
+            }
+            
             const ws_theme_bank_t *bank = ws_theme_get_bank(g_oem_color);
             if (bank) {
                 ws_theme_id_t next = ws_theme_bank_next(bank, g_current_theme);
@@ -274,7 +294,18 @@ int main(void)
 
 		ws2812_t *main_strip = get_main_strip();
 
-		// Демо режим: автоматическое переключение тем (только если DEMO_MODE == 1)
+		// Сначала обновляем роль master/slave (discovery и failover)
+		can_ambient_update_role(now);
+
+		// Обновляем ambient систему из CAN (синхронизация яркости и OEM цвета)
+		// В демо режиме тема управляется через demo_mode_update(), поэтому
+		// can_ambient_update() обновляет только яркость и OEM цвет
+		if (main_strip) {
+			can_ambient_update(main_strip, &g_player);
+		}
+
+		// Демо режим: автоматическое переключение тем (только если DEMO_MODE == 1 и master)
+		// Вызывается после can_ambient_update(), чтобы демо режим мог переопределить тему
 		demo_mode_update(now);
 
 		// Обновляем player (главная strip)
@@ -322,14 +353,6 @@ int main(void)
 		// Отправляем все зоны на ленты (рендеринг всех LED)
 		board_led_render_all();
 
-		// Обновляем ambient систему из CAN (синхронизация тем и яркости)
-		if (main_strip) {
-			can_ambient_update(main_strip, &g_player);
-		}
-
-		// Обновляем роль master/slave (discovery и failover)
-		can_ambient_update_role(now);
-
 		// Master отправляет пакеты синхронизации
 		static uint32_t last_master_send_ms = 0;
 		static uint32_t last_sync_send_ms = 0;
@@ -369,6 +392,8 @@ int main(void)
 		if (dt == 0u) {
 			__WFI();  // Wait For Interrupt - процессор переходит в sleep до следующего прерывания
 		}
+    
+    HAL_Delay(1);
 	}
   /* USER CODE END 3 */
 }
