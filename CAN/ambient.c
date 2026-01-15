@@ -144,10 +144,14 @@ void can_ambient_init(FDCAN_HandleTypeDef *hfdcan)
 /* ========== RX PROCESSING ========== */
 static void handle_oem(const uint8_t *d, uint8_t len)
 {
-    if (len < 3) return;
+    if (len < 4) return;
 
-    uint8_t br_raw = d[0];   // 0..OEM_BRIGHTNESS_MAX
-    uint8_t col    = d[2];   // 0=Amber,1=Blue,2=White
+    /* DBC: AmbBrt_Rq - байт 0, биты 5-7 (диапазон 0-5) */
+    uint8_t br_raw = d[0];
+//    uint8_t br_raw = (d[0] >> 5) & 0x07;
+    /* DBC: Amblgt_Col_Rg - байт 3, биты 4-5 (диапазон 0-3) */
+    uint8_t c1ol    = (d[3] >> 4);
+    uint8_t col    = (d[3] >> 4) & 0x03;
 
     /* Валидация входных данных */
     if (col > 2) return;  /* oem_color должен быть 0-2 */

@@ -57,14 +57,10 @@ typedef struct {
     uint8_t           *rgb;
     uint16_t           led_count;
 
-    uint16_t          *dma_buf_a;
-    uint16_t          *dma_buf_b;
-    uint16_t          *active_buf;
-    uint16_t          *ready_buf;
+    uint32_t          *dma_buf;
     uint32_t           dma_len;
 
     volatile uint8_t   dma_busy;
-    volatile uint8_t   frame_ready;
 
     float              global_brightness;
     uint8_t            br_forced;
@@ -77,8 +73,7 @@ void ws_init(ws2812_t        *ws,
              TIM_HandleTypeDef *htim,
              uint32_t         tim_channel,
              uint8_t         *framebuffer,
-             uint16_t        *dma_buf_a,
-             uint16_t        *dma_buf_b,
+             uint32_t        *dma_buf,
              uint16_t         led_count);
 
 void ws_set_global_brightness(ws2812_t *ws, float br);
@@ -94,11 +89,10 @@ static inline void led_zone_init(led_zone_t       *z,
                                  TIM_HandleTypeDef *htim,
                                  uint32_t          ch,
                                  uint8_t          *fb,
-                                 uint16_t         *dma_a,
-                                 uint16_t         *dma_b,
+                                 uint32_t         *dma,
                                  uint16_t          n)
 {
-    ws_init(z, htim, ch, fb, dma_a, dma_b, n);
+    ws_init(z, htim, ch, fb, dma, n);
 }
 
 static inline void led_zone_render(led_zone_t *z)

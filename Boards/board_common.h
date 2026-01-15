@@ -47,8 +47,7 @@ extern "C" {
     static uint8_t prefix##_##zone##_fb[(leds) * BYTES_PER_LED]
 
 #define DECLARE_ZONE_DMA(prefix, zone, leds) \
-    __ALIGNED(4) static uint16_t prefix##_##zone##_dmaA[BOARD_DMA_BUF_LEN(leds)]; \
-    __ALIGNED(4) static uint16_t prefix##_##zone##_dmaB[BOARD_DMA_BUF_LEN(leds)]
+    __ALIGNED(4) static uint32_t prefix##_##zone##_dma[BOARD_DMA_BUF_LEN(leds)]
 
 #define DECLARE_ZONE_BUFFERS_SINGLE(prefix, zone, leds) \
     DECLARE_ZONE_FB(prefix, zone, leds); \

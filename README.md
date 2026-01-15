@@ -349,12 +349,14 @@ AMBER 1st → WHITE 1st → AMBER 2nd → WHITE 2nd → BLUE 1st → WHITE 3rd �
 
 **ID:** `0x325`, **DLC:** 6
 
-| Byte | Описание |
-|------|----------|
-| 0 | `brightness_raw` (0..5) |
-| 1 | Reserved |
-| 2 | `oem_color` (0=Amber, 1=Blue, 2=White) |
-| 3-5 | Reserved |
+| Byte | Bits | Описание |
+|------|------|----------|
+| 0 | 5-7 | `AmbBrt_Rq` - яркость (0-5) |
+| 0 | 0-4 | Reserved |
+| 1-2 | - | Reserved |
+| 3 | 4-5 | `Amblgt_Col_Rg` - цвет (0=Amber, 1=Blue, 2=White, 3=Reserved) |
+| 3 | 0-3, 6-7 | Reserved |
+| 4-7 | - | Reserved |
 
 **Отправитель:** Машина (IC) → Все платы  
 **Обработка:** Только master платой

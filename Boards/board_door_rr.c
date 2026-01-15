@@ -12,29 +12,25 @@
 #include "board_common.h"   /* Common macros with DMA alignment */
 
 /* TIM from CubeMX */
-extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef htim2;
 
 /* === RGB and DMA buffers for all zones (properly aligned for DMA) ======= */
 
 /* STRIP */
 static uint8_t rr_strip_fb[RR_STRIP_LEDS * BYTES_PER_LED];
-__ALIGNED(4) static uint16_t rr_strip_dmaA[BOARD_DMA_BUF_LEN(RR_STRIP_LEDS)];
-__ALIGNED(4) static uint16_t rr_strip_dmaB[BOARD_DMA_BUF_LEN(RR_STRIP_LEDS)];
+__ALIGNED(4) static uint32_t rr_strip_dma[BOARD_DMA_BUF_LEN(RR_STRIP_LEDS)];
 
 /* HANDLE */
 static uint8_t rr_handle_fb[RR_HANDLE_LEDS * BYTES_PER_LED];
-__ALIGNED(4) static uint16_t rr_handle_dmaA[BOARD_DMA_BUF_LEN(RR_HANDLE_LEDS)];
-__ALIGNED(4) static uint16_t rr_handle_dmaB[BOARD_DMA_BUF_LEN(RR_HANDLE_LEDS)];
+__ALIGNED(4) static uint32_t rr_handle_dma[BOARD_DMA_BUF_LEN(RR_HANDLE_LEDS)];
 
 /* STORAGE */
 static uint8_t rr_storage_fb[RR_STORAGE_LEDS * BYTES_PER_LED];
-__ALIGNED(4) static uint16_t rr_storage_dmaA[BOARD_DMA_BUF_LEN(RR_STORAGE_LEDS)];
-__ALIGNED(4) static uint16_t rr_storage_dmaB[BOARD_DMA_BUF_LEN(RR_STORAGE_LEDS)];
+__ALIGNED(4) static uint32_t rr_storage_dma[BOARD_DMA_BUF_LEN(RR_STORAGE_LEDS)];
 
 /* FOOTWELL */
 static uint8_t rr_footwell_fb[RR_FOOTWELL_LEDS * BYTES_PER_LED];
-__ALIGNED(4) static uint16_t rr_footwell_dmaA[BOARD_DMA_BUF_LEN(RR_FOOTWELL_LEDS)];
-__ALIGNED(4) static uint16_t rr_footwell_dmaB[BOARD_DMA_BUF_LEN(RR_FOOTWELL_LEDS)];
+__ALIGNED(4) static uint32_t rr_footwell_dma[BOARD_DMA_BUF_LEN(RR_FOOTWELL_LEDS)];
 
 /* === Экземпляры ws2812_t (фактически физические линии/zones) ========= */
 
@@ -75,47 +71,43 @@ __attribute__((weak)) const zone_map_t g_zone_map[WS_ZONE_MAX] = {
 
 void board_rr_led_init(void)
 {
-    /* TIM1 должен быть настроен в CubeMX:
+    /* TIM2 должен быть настроен в CubeMX:
      * - PWM mode
      * - период под 800 кГц биттайминга WS2812
      * - включены каналы CH1..CH4 (где надо)
      * - DMA для соответствующих каналов
      */
 
-    /* Основная линия (STRIP) на TIM1_CH1 */
+    /* Основная линия (STRIP) на TIM2_CH1 */
     ws_init(&g_rr_strip,
-            &htim1,
+            &htim2,
             TIM_CHANNEL_1,
             rr_strip_fb,
-            rr_strip_dmaA,
-            rr_strip_dmaB,
+            rr_strip_dma,
             RR_STRIP_LEDS);
 
-    /* Ручка (HANDLE) на TIM1_CH2 */
+    /* Ручка (HANDLE) на TIM2_CH2 */
     ws_init(&g_rr_handle,
-            &htim1,
+            &htim2,
             TIM_CHANNEL_2,
             rr_handle_fb,
-            rr_handle_dmaA,
-            rr_handle_dmaB,
+            rr_handle_dma,
             RR_HANDLE_LEDS);
 
-    /* Ниша (STORAGE) на TIM1_CH3 */
+    /* Ниша (STORAGE) на TIM2_CH3 */
     ws_init(&g_rr_storage,
-            &htim1,
+            &htim2,
             TIM_CHANNEL_3,
             rr_storage_fb,
-            rr_storage_dmaA,
-            rr_storage_dmaB,
+            rr_storage_dma,
             RR_STORAGE_LEDS);
 
-    /* Подсветка ног (FOOTWELL) на TIM1_CH4 */
+    /* Подсветка ног (FOOTWELL) на TIM2_CH4 */
     ws_init(&g_rr_footwell,
-            &htim1,
+            &htim2,
             TIM_CHANNEL_4,
             rr_footwell_fb,
-            rr_footwell_dmaA,
-            rr_footwell_dmaB,
+            rr_footwell_dma,
             RR_FOOTWELL_LEDS);
 
     /* Стартовое состояние: выкл, яркость 0 */

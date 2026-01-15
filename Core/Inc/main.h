@@ -63,14 +63,6 @@ void Error_Handler(void);
 #define LED_PWR_EN_GPIO_Port GPIOB
 #define LED_DATA_OE_Pin GPIO_PIN_2
 #define LED_DATA_OE_GPIO_Port GPIOB
-#define ZONE_CH1_Pin GPIO_PIN_8
-#define ZONE_CH1_GPIO_Port GPIOA
-#define ZONE_CH2_Pin GPIO_PIN_9
-#define ZONE_CH2_GPIO_Port GPIOA
-#define ZONE_CH3_Pin GPIO_PIN_10
-#define ZONE_CH3_GPIO_Port GPIOA
-#define ZONE_CH4_Pin GPIO_PIN_11
-#define ZONE_CH4_GPIO_Port GPIOA
 #define FDCAN1_STBY_Pin GPIO_PIN_6
 #define FDCAN1_STBY_GPIO_Port GPIOB
 #define FDCAN1_WAKEUP_Pin GPIO_PIN_7

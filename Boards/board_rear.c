@@ -12,29 +12,25 @@
 #include "board_common.h"   /* Common macros with DMA alignment */
 
 /* TIM from CubeMX */
-extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef htim2;
 
 /* === RGB and DMA buffers for all zones (properly aligned for DMA) ======= */
 
 /* STRIP */
 static uint8_t rear_strip_fb[REAR_STRIP_LEDS * BYTES_PER_LED];
-__ALIGNED(4) static uint16_t rear_strip_dmaA[BOARD_DMA_BUF_LEN(REAR_STRIP_LEDS)];
-__ALIGNED(4) static uint16_t rear_strip_dmaB[BOARD_DMA_BUF_LEN(REAR_STRIP_LEDS)];
+__ALIGNED(4) static uint32_t rear_strip_dma[BOARD_DMA_BUF_LEN(REAR_STRIP_LEDS)];
 
 /* HANDLE - may be absent, but buffers needed for compatibility */
 static uint8_t rear_handle_fb[1 * BYTES_PER_LED];
-__ALIGNED(4) static uint16_t rear_handle_dmaA[BOARD_DMA_BUF_LEN(1)];
-__ALIGNED(4) static uint16_t rear_handle_dmaB[BOARD_DMA_BUF_LEN(1)];
+__ALIGNED(4) static uint32_t rear_handle_dma[BOARD_DMA_BUF_LEN(1)];
 
 /* STORAGE - may be absent, but buffers needed for compatibility */
 static uint8_t rear_storage_fb[1 * BYTES_PER_LED];
-__ALIGNED(4) static uint16_t rear_storage_dmaA[BOARD_DMA_BUF_LEN(1)];
-__ALIGNED(4) static uint16_t rear_storage_dmaB[BOARD_DMA_BUF_LEN(1)];
+__ALIGNED(4) static uint32_t rear_storage_dma[BOARD_DMA_BUF_LEN(1)];
 
 /* FOOTWELL */
 static uint8_t rear_footwell_fb[REAR_FOOTWELL_LEDS * BYTES_PER_LED];
-__ALIGNED(4) static uint16_t rear_footwell_dmaA[BOARD_DMA_BUF_LEN(REAR_FOOTWELL_LEDS)];
-__ALIGNED(4) static uint16_t rear_footwell_dmaB[BOARD_DMA_BUF_LEN(REAR_FOOTWELL_LEDS)];
+__ALIGNED(4) static uint32_t rear_footwell_dma[BOARD_DMA_BUF_LEN(REAR_FOOTWELL_LEDS)];
 
 /* === Экземпляры ws2812_t (фактически физические линии/zones) ========= */
 
@@ -75,47 +71,43 @@ __attribute__((weak)) const zone_map_t g_zone_map[WS_ZONE_MAX] = {
 
 void board_rear_led_init(void)
 {
-    /* TIM1 должен быть настроен в CubeMX:
+    /* TIM2 должен быть настроен в CubeMX:
      * - PWM mode
      * - период под 800 кГц биттайминга WS2812
      * - включены каналы CH1..CH4 (где надо)
      * - DMA для соответствующих каналов
      */
 
-    /* Основная линия (STRIP) на TIM1_CH1 */
+    /* Основная линия (STRIP) на TIM2_CH1 */
     ws_init(&g_rear_strip,
-            &htim1,
+            &htim2,
             TIM_CHANNEL_1,
             rear_strip_fb,
-            rear_strip_dmaA,
-            rear_strip_dmaB,
+            rear_strip_dma,
             REAR_STRIP_LEDS);
 
-    /* Ручка (HANDLE) на TIM1_CH2 - инициализируем всегда (count=0 если нет) */
+    /* Ручка (HANDLE) на TIM2_CH2 - инициализируем всегда (count=0 если нет) */
     ws_init(&g_rear_handle,
-            &htim1,
+            &htim2,
             TIM_CHANNEL_2,
             rear_handle_fb,
-            rear_handle_dmaA,
-            rear_handle_dmaB,
+            rear_handle_dma,
             REAR_HANDLE_LEDS);
 
-    /* Ниша (STORAGE) на TIM1_CH3 - инициализируем всегда (count=0 если нет) */
+    /* Ниша (STORAGE) на TIM2_CH3 - инициализируем всегда (count=0 если нет) */
     ws_init(&g_rear_storage,
-            &htim1,
+            &htim2,
             TIM_CHANNEL_3,
             rear_storage_fb,
-            rear_storage_dmaA,
-            rear_storage_dmaB,
+            rear_storage_dma,
             REAR_STORAGE_LEDS);
 
-    /* Подсветка ног (FOOTWELL) на TIM1_CH4 */
+    /* Подсветка ног (FOOTWELL) на TIM2_CH4 */
     ws_init(&g_rear_footwell,
-            &htim1,
+            &htim2,
             TIM_CHANNEL_4,
             rear_footwell_fb,
-            rear_footwell_dmaA,
-            rear_footwell_dmaB,
+            rear_footwell_dma,
             REAR_FOOTWELL_LEDS);
 
     /* Стартовое состояние: выкл, яркость 0 */

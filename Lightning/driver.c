@@ -39,12 +39,12 @@ static uint32_t channel_to_active_flag(uint32_t tim_channel)
     }
 }
 
-static void pack_into(ws2812_t *ws, uint16_t *dst)
+static void pack_into(ws2812_t *ws, uint32_t *dst)
 {
     if (!ws || !dst || !ws->rgb) return;
 
-    const uint16_t one  = WS_T1H;
-    const uint16_t zero = WS_T0H;
+    const uint32_t one  = WS_T1H;
+    const uint32_t zero = WS_T0H;
 
     float brf  = ws_effective_brightness(ws);
     uint32_t bq = (uint32_t)(brf * 255.f + 0.5f);
@@ -90,11 +90,10 @@ void ws_init(ws2812_t        *ws,
              TIM_HandleTypeDef *htim,
              uint32_t         tim_channel,
              uint8_t         *framebuffer,
-             uint16_t        *dma_buf_a,
-             uint16_t        *dma_buf_b,
+             uint32_t        *dma_buf,
              uint16_t         led_count)
 {
-    if (!ws || !htim || !framebuffer || !dma_buf_a || !dma_buf_b || led_count == 0)
+    if (!ws || !htim || !framebuffer || !dma_buf || led_count == 0)
         return;
 
     memset(ws, 0, sizeof(*ws));
@@ -103,21 +102,15 @@ void ws_init(ws2812_t        *ws,
     ws->tim_channel = tim_channel;
     ws->rgb         = framebuffer;
     ws->led_count   = led_count;
-
-    ws->dma_buf_a   = dma_buf_a;
-    ws->dma_buf_b   = dma_buf_b;
-    ws->active_buf  = ws->dma_buf_a;
-    ws->ready_buf   = ws->dma_buf_b;
-
+    ws->dma_buf     = dma_buf;
     ws->dma_len     = (uint32_t)led_count * BYTES_PER_LED * 8u + WS_RESET_SLOTS;
 
     memset(ws->rgb, 0, (size_t)led_count * BYTES_PER_LED);
 
-    ws->global_brightness = 0.0f;
+    ws->global_brightness = 1.0f;
     ws->br_forced         = 0u;
     ws->br_forced_value   = 0.0f;
     ws->dma_busy          = 0u;
-    ws->frame_ready       = 0u;
 }
 
 void ws_set_global_brightness(ws2812_t *ws, float br)
@@ -141,25 +134,19 @@ void ws_release_brightness(ws2812_t *ws)
 
 void ws_render(ws2812_t *ws)
 {
-    if (!ws || !ws->htim || !ws->active_buf || !ws->ready_buf || !ws->rgb)
+    if (!ws || !ws->htim || !ws->dma_buf || !ws->rgb)
         return;
 
-    pack_into(ws, ws->ready_buf);
-    ws->frame_ready = 1u;
+    if (ws->dma_busy)
+        return;  /* Ждём завершения предыдущей передачи */
 
-    if (!ws->dma_busy) {
-        ws->dma_busy    = 1u;
-        ws->frame_ready = 0u;
+    pack_into(ws, ws->dma_buf);
+    ws->dma_busy = 1u;
 
-        uint16_t *tmp  = ws->active_buf;
-        ws->active_buf = ws->ready_buf;
-        ws->ready_buf  = tmp;
-
-        HAL_TIM_PWM_Start_DMA(ws->htim,
-                              ws->tim_channel,
-                              (uint32_t*)ws->active_buf,
-                              ws->dma_len);
-    }
+    HAL_TIM_PWM_Start_DMA(ws->htim,
+                          ws->tim_channel,
+                          (uint32_t*)ws->dma_buf,
+                          ws->dma_len);
 }
 
 void ws_dma_tc_isr(ws2812_t *ws, TIM_HandleTypeDef *htim)
@@ -171,21 +158,8 @@ void ws_dma_tc_isr(ws2812_t *ws, TIM_HandleTypeDef *htim)
     if (expected == 0 || htim->Channel != expected)
         return;
 
-    if (ws->frame_ready) {
-        ws->frame_ready = 0u;
-
-        uint16_t *tmp  = ws->active_buf;
-        ws->active_buf = ws->ready_buf;
-        ws->ready_buf  = tmp;
-
-        HAL_TIM_PWM_Start_DMA(ws->htim,
-                              ws->tim_channel,
-                              (uint32_t*)ws->active_buf,
-                              ws->dma_len);
-    } else {
-        ws->dma_busy = 0u;
-        HAL_TIM_PWM_Stop_DMA(ws->htim, ws->tim_channel);
-    }
+    ws->dma_busy = 0u;
+    HAL_TIM_PWM_Stop_DMA(ws->htim, ws->tim_channel);
 }
 
 void ws_power_set(uint8_t on)

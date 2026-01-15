@@ -12,29 +12,25 @@
 #include "board_common.h"   /* Common macros with DMA alignment */
 
 /* TIM from CubeMX */
-extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef htim2;
 
 /* === RGB and DMA buffers for all zones (properly aligned for DMA) ======= */
 
 /* STRIP - main dashboard strip */
 static uint8_t dashboard_strip_fb[DASHBOARD_STRIP_LEDS * BYTES_PER_LED];
-__ALIGNED(4) static uint16_t dashboard_strip_dmaA[BOARD_DMA_BUF_LEN(DASHBOARD_STRIP_LEDS)];
-__ALIGNED(4) static uint16_t dashboard_strip_dmaB[BOARD_DMA_BUF_LEN(DASHBOARD_STRIP_LEDS)];
+__ALIGNED(4) static uint32_t dashboard_strip_dma[BOARD_DMA_BUF_LEN(DASHBOARD_STRIP_LEDS)];
 
 /* CENTER - center console */
 static uint8_t dashboard_center_fb[DASHBOARD_CENTER_LEDS * BYTES_PER_LED];
-__ALIGNED(4) static uint16_t dashboard_center_dmaA[BOARD_DMA_BUF_LEN(DASHBOARD_CENTER_LEDS)];
-__ALIGNED(4) static uint16_t dashboard_center_dmaB[BOARD_DMA_BUF_LEN(DASHBOARD_CENTER_LEDS)];
+__ALIGNED(4) static uint32_t dashboard_center_dma[BOARD_DMA_BUF_LEN(DASHBOARD_CENTER_LEDS)];
 
 /* AC_VENTS - AC vents */
 static uint8_t dashboard_ac_vents_fb[DASHBOARD_AC_VENTS_LEDS * BYTES_PER_LED];
-__ALIGNED(4) static uint16_t dashboard_ac_vents_dmaA[BOARD_DMA_BUF_LEN(DASHBOARD_AC_VENTS_LEDS)];
-__ALIGNED(4) static uint16_t dashboard_ac_vents_dmaB[BOARD_DMA_BUF_LEN(DASHBOARD_AC_VENTS_LEDS)];
+__ALIGNED(4) static uint32_t dashboard_ac_vents_dma[BOARD_DMA_BUF_LEN(DASHBOARD_AC_VENTS_LEDS)];
 
 /* FOOTWELL */
 static uint8_t dashboard_footwell_fb[DASHBOARD_FOOTWELL_LEDS * BYTES_PER_LED];
-__ALIGNED(4) static uint16_t dashboard_footwell_dmaA[BOARD_DMA_BUF_LEN(DASHBOARD_FOOTWELL_LEDS)];
-__ALIGNED(4) static uint16_t dashboard_footwell_dmaB[BOARD_DMA_BUF_LEN(DASHBOARD_FOOTWELL_LEDS)];
+__ALIGNED(4) static uint32_t dashboard_footwell_dma[BOARD_DMA_BUF_LEN(DASHBOARD_FOOTWELL_LEDS)];
 
 /* === Экземпляры ws2812_t (фактически физические линии/zones) ========= */
 
@@ -76,47 +72,43 @@ __attribute__((weak)) const zone_map_t g_zone_map[WS_ZONE_MAX] = {
 
 void board_dashboard_led_init(void)
 {
-    /* TIM1 должен быть настроен в CubeMX:
+    /* TIM2 должен быть настроен в CubeMX:
      * - PWM mode
      * - период под 800 кГц биттайминга WS2812
      * - включены каналы CH1..CH4 (где надо)
      * - DMA для соответствующих каналов
      */
 
-    /* Основная линия (STRIP) на TIM1_CH1 */
+    /* Основная линия (STRIP) на TIM2_CH1 */
     ws_init(&g_dashboard_strip,
-            &htim1,
+            &htim2,
             TIM_CHANNEL_1,
             dashboard_strip_fb,
-            dashboard_strip_dmaA,
-            dashboard_strip_dmaB,
+            dashboard_strip_dma,
             DASHBOARD_STRIP_LEDS);
 
-    /* Центральная консоль (CENTER) на TIM1_CH2 */
+    /* Центральная консоль (CENTER) на TIM2_CH2 */
     ws_init(&g_dashboard_center,
-            &htim1,
+            &htim2,
             TIM_CHANNEL_2,
             dashboard_center_fb,
-            dashboard_center_dmaA,
-            dashboard_center_dmaB,
+            dashboard_center_dma,
             DASHBOARD_CENTER_LEDS);
 
-    /* Дефлекторы кондиционера (AC_VENTS) на TIM1_CH3 */
+    /* Дефлекторы кондиционера (AC_VENTS) на TIM2_CH3 */
     ws_init(&g_dashboard_ac_vents,
-            &htim1,
+            &htim2,
             TIM_CHANNEL_3,
             dashboard_ac_vents_fb,
-            dashboard_ac_vents_dmaA,
-            dashboard_ac_vents_dmaB,
+            dashboard_ac_vents_dma,
             DASHBOARD_AC_VENTS_LEDS);
 
-    /* Подсветка ног (FOOTWELL) на TIM1_CH4 */
+    /* Подсветка ног (FOOTWELL) на TIM2_CH4 */
     ws_init(&g_dashboard_footwell,
-            &htim1,
+            &htim2,
             TIM_CHANNEL_4,
             dashboard_footwell_fb,
-            dashboard_footwell_dmaA,
-            dashboard_footwell_dmaB,
+            dashboard_footwell_dma,
             DASHBOARD_FOOTWELL_LEDS);
 
     /* Стартовое состояние: выкл, яркость 0 */
