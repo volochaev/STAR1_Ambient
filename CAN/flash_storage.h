@@ -9,11 +9,6 @@
  * Uses last 2KB page of Flash (address 0x0801F800).
  * Data structure includes magic number and CRC32 for integrity checking.
  *
- * @section Saved Settings
- * - extended_mode: Extended mode state (0/1)
- * - bank_id: Selected theme bank (0-3)
- * - theme_index: Theme index within bank
- *
  * @section Safety
  * Settings are saved with 2 second delay after last change to minimize
  * Flash write cycles. Flash has limited write endurance (~10,000 cycles).
@@ -49,9 +44,8 @@ extern "C" {
 typedef struct {
     uint32_t magic;              /* Magic number для проверки валидности */
     uint32_t crc;                /* CRC32 для проверки целостности */
-    uint8_t  extended_mode;      /* Extended режим (0/1) */
-    uint8_t  bank_id;            /* Bank ID (0=auto, 1=amber, 2=blue, 3=white) */
-    uint8_t  theme_index;        /* Индекс темы в банке (для extended mode) */
+    uint8_t  bank_id;            /* Последний bank_id (0..2) */
+    uint8_t  theme_index;        /* Последний theme_index */
     uint8_t  last_oem_color;     /* Последний OEM цвет (для cyclic rotation) */
     uint8_t  oem_theme_indices[FLASH_OEM_BANK_COUNT]; /* Циклические индексы тем для каждого OEM банка */
     uint8_t  reserved;           /* Резерв для выравнивания */

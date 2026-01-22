@@ -11,11 +11,10 @@
  * Colors are interpolated between stops for smooth gradients.
  *
  * @section Available Palettes
- * Classic: Sunset Amber, Ocean Blue, Red Moon, Purple Silk
- * Classic: Glacier, Energize, Polar White, Night Blue
- * Classic: Hyacinth, Copper Gold, Rose
- * Premium: Diamond White, Silver Mist, Platinum, Amber Gold, Magenta Royal
- * W223/EQS: Aurora Borealis, Champagne Gold, Deep Burgundy, Emerald Forest, Ice Sapphire
+ * W223/EQS Premium set:
+ * - Champagne Arc, Amber Sunset, Copper Rose, Burgundy Velvet
+ * - Emerald Veil, Aurora Glacier, Sapphire Ice, Night Opal
+ * - Glacier Mist, Silver Silk, Platinum Cloud, Pearl Blush
  *
  * @version 2.0
  * @date    2025
@@ -41,33 +40,18 @@ typedef struct ws_palette_s {
 } ws_palette_t;
 
 typedef enum {
-    /* Classic Mercedes palettes */
-    WSPAL_MB_SUNSET_AMBER = 0,
-    WSPAL_MB_OCEAN_BLUE,
-    WSPAL_MB_RED_MOON,
-    WSPAL_MB_PURPLE_SILK,
-    WSPAL_MB_GLACIER,
-    WSPAL_MB_ENERGIZE,
-    WSPAL_MB_POLAR_WHITE,
-    WSPAL_MB_NIGHT_BLUE,      /* глубокий ночной синий */
-    WSPAL_MB_HYACINTH,        /* фиолетово-розовый MB Hyacinth */
-    WSPAL_MB_COPPER_GOLD,     /* медно-золотая */
-    WSPAL_MB_ROSE,            /* мягкий розово-золотистый */
-
-    /* Premium palettes */
-    WSPAL_MB_DIAMOND_WHITE,   /* бриллиантово-белый с холодными оттенками */
-    WSPAL_MB_SILVER_MIST,     /* серебряный туман, нейтральный металлик */
-    WSPAL_MB_PLATINUM,        /* платина, элегантный серый с теплым оттенком */
-    WSPAL_MB_AMBER_GOLD,      /* янтарное золото, насыщенное */
-    WSPAL_MB_MAGENTA_ROYAL,   /* королевский пурпур, глубокий и насыщенный */
-
-    /* W223/EQS Premium palettes */
-    WSPAL_AURORA_BOREALIS,    /* северное сияние - зелёный/голубой/фиолетовый */
-    WSPAL_CHAMPAGNE_GOLD,     /* шампань - тёплый перламутровый золотистый */
-    WSPAL_DEEP_BURGUNDY,      /* глубокий бордо с винным оттенком */
-    WSPAL_EMERALD_FOREST,     /* изумрудный лес с тёплыми акцентами */
-    WSPAL_ICE_SAPPHIRE,       /* ледяной сапфировый синий */
-
+    WSPAL_CHAMPAGNE_ARC = 0,   /* тёплое шампанское с перламутровым свечением */
+    WSPAL_AMBER_SUNSET,        /* янтарно-апельсиновый закат */
+    WSPAL_COPPER_ROSE,         /* розово-медный перламутр */
+    WSPAL_BURGUNDY_VELVET,     /* глубокий бордо с бархатным блеском */
+    WSPAL_EMERALD_VEIL,        /* изумрудный вуаль с тёплым акцентом */
+    WSPAL_AURORA_GLACIER,      /* северное сияние: бирюза → лавандовый лёд */
+    WSPAL_SAPPHIRE_ICE,        /* сапфировый лёд с кристальным верхом */
+    WSPAL_NIGHT_OPAL,          /* ночной опал: синий с фиолетовым свечением */
+    WSPAL_GLACIER_MIST,        /* туманный лёд: холодный бело-голубой */
+    WSPAL_SILVER_SILK,         /* матовый серебряный шёлк */
+    WSPAL_PLATINUM_CLOUD,      /* платиновое облако, чистый нейтральный белый */
+    WSPAL_PEARL_BLUSH,         /* жемчужный румянец: белый с розовым свечением */
     WSPAL_MAX_
 } ws_palette_id_t;
 

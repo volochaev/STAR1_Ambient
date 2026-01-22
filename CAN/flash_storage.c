@@ -41,35 +41,44 @@ static uint32_t crc32_calculate(const uint8_t *data, uint32_t len)
     return ~crc;
 }
 
+/* Вычисляем CRC с исключением поля crc (обнуляем его перед подсчетом) */
+static uint32_t flash_storage_calc_crc(const flash_storage_data_t *in)
+{
+    flash_storage_data_t tmp;
+    memcpy(&tmp, in, sizeof(tmp));
+    tmp.crc = 0;
+    return crc32_calculate((const uint8_t *)&tmp, sizeof(tmp));
+}
+
 int flash_storage_load(amb_can_state_t *state)
 {
     if (!state) return -1;
     
     /* Читаем данные из Flash */
     const flash_storage_data_t *flash_data = (const flash_storage_data_t *)FLASH_STORAGE_BASE_ADDR;
+    flash_storage_data_t data;
+    memcpy(&data, flash_data, sizeof(data));
     
     /* Проверяем magic number */
-    if (flash_data->magic != FLASH_STORAGE_MAGIC) {
+    if (data.magic != FLASH_STORAGE_MAGIC) {
         /* Данные отсутствуют или невалидны */
         return -1;
     }
     
     /* Проверяем CRC */
-    uint32_t calculated_crc = crc32_calculate((const uint8_t *)flash_data, 
-                                               sizeof(flash_storage_data_t) - sizeof(uint32_t));
+    uint32_t calculated_crc = flash_storage_calc_crc(&data);
     
-    if (calculated_crc != flash_data->crc) {
+    if (calculated_crc != data.crc) {
         /* CRC не совпадает - данные повреждены */
         return -1;
     }
     
     /* Копируем валидные данные */
-    state->extended_mode = flash_data->extended_mode;
-    state->bank_id = flash_data->bank_id;
-    state->theme_index = flash_data->theme_index;
-    state->last_oem_color = flash_data->last_oem_color;
+    state->bank_id = data.bank_id;
+    state->theme_index = data.theme_index;
+    state->last_oem_color = data.last_oem_color;
     for (int i = 0; i < FLASH_OEM_BANK_COUNT; i++) {
-        state->oem_theme_indices[i] = flash_data->oem_theme_indices[i];
+        state->oem_theme_indices[i] = data.oem_theme_indices[i];
     }
     
     return 0;
@@ -88,7 +97,6 @@ int flash_storage_save(const amb_can_state_t *state)
     memset(&data, 0xFF, sizeof(data));  /* Заполняем 0xFF (пустое состояние Flash) */
     
     data.magic = FLASH_STORAGE_MAGIC;
-    data.extended_mode = state->extended_mode;
     data.bank_id = state->bank_id;
     data.theme_index = state->theme_index;
     data.last_oem_color = state->last_oem_color;
@@ -97,7 +105,7 @@ int flash_storage_save(const amb_can_state_t *state)
     }
     
     /* Вычисляем CRC (без поля CRC) */
-    data.crc = crc32_calculate((const uint8_t *)&data, sizeof(flash_storage_data_t) - sizeof(uint32_t));
+    data.crc = flash_storage_calc_crc(&data);
     
     /* Защита от прерываний во время операций с Flash */
     __disable_irq();
@@ -147,8 +155,9 @@ int flash_storage_save(const amb_can_state_t *state)
     __enable_irq();
     
     /* Проверяем записанные данные */
-    const flash_storage_data_t *written = (const flash_storage_data_t *)FLASH_STORAGE_BASE_ADDR;
-    if (written->magic != FLASH_STORAGE_MAGIC || written->crc != data.crc) {
+    flash_storage_data_t written;
+    memcpy(&written, (const void *)FLASH_STORAGE_BASE_ADDR, sizeof(written));
+    if (written.magic != FLASH_STORAGE_MAGIC || written.crc != flash_storage_calc_crc(&written)) {
         return -1;
     }
     

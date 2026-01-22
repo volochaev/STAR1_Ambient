@@ -62,7 +62,7 @@ static void apply_zone_fx(const ws_theme_desc_t *T,
 
 #if !AMB_ENABLE_ZONE_FX
     /* Если продвинутая анимация зон выключена – просто мягкий solid */
-    fx = FX_MB_SOFT_SOLID;
+    fx = FX_SOLID_GRADIENT;
 #endif
 
     uint32_t now_ms = HAL_GetTick();
@@ -73,7 +73,7 @@ static void apply_zone_fx(const ws_theme_desc_t *T,
     /* --------------------------------------------------------------
      * 1) Мягкий статичный цвет (soft solid)
      * -------------------------------------------------------------- */
-    case FX_MB_SOFT_SOLID:
+    case FX_SOLID_GRADIENT:
     default:
     {
         uint8_t r, g, b;
@@ -93,7 +93,7 @@ static void apply_zone_fx(const ws_theme_desc_t *T,
     /* --------------------------------------------------------------
      * 2) Лёгкое дыхание яркости (soft breathe)
      * -------------------------------------------------------------- */
-    case FX_MB_SOFT_BREATHE:
+    case FX_SOFT_BREATHE:
     {
         /* Очень медленное дыхание:
          * ~0.05 Гц => 20 секунд на цикл.
@@ -122,8 +122,8 @@ static void apply_zone_fx(const ws_theme_desc_t *T,
     /* --------------------------------------------------------------
      * 3) Мягкий flow по палитре (цвет «течёт» по оттенкам зоны)
      * -------------------------------------------------------------- */
-    case FX_MB_FLOW_SOFT:
-    case FX_MB_OCEAN_FLOW:
+    case FX_GRADIENT_FLOW:
+    case FX_OCEAN_FLOW:
     {
         const float speed_u  = 0.02f;   // единиц палитры в секунду
         const float spread_u = 0.10f;   // растяжение по длине зоны
@@ -334,6 +334,69 @@ void zones_apply_outro(const scene_player_t *pl, float t_norm)
             
             /* Записываем обратно */
             ws_set_pixel_rgb(zm->ws, led_idx, r, g, b);
+        }
+    }
+}
+
+/* Линейный бридж для зон: плавный переход от финала интро (solid) к сцене */
+void zones_apply_bridge(const scene_player_t *pl, float t_norm)
+{
+    if (!pl) return;
+
+    const ws_theme_desc_t *T = ws_theme_get(pl->theme);
+    if (!T) return;
+
+    float blend = clamp01f(t_norm);
+    float inv   = 1.0f - blend;
+
+    for (int z = 0; z < (int)WS_ZONE_MAX; ++z) {
+        if (z == WS_ZONE_STRIP)
+            continue;   // strip блендится в scene_player
+
+        ws_zone_id_t zone_id = (ws_zone_id_t)z;
+        const zone_map_t *zm = &g_zone_map[zone_id];
+        if (!zm || !zm->ws || zm->count == 0) continue;
+
+        const ws_zone_profile_t *zp = &T->zone[zone_id];
+        if (!zp) continue;
+
+        const ws_palette_t *pal =
+            ws_palette_get(zp->pal_id ? zp->pal_id : T->pal_main);
+        if (!pal) continue;
+
+        /* Сначала рисуем сцену в буфер зоны */
+        apply_zone_fx(T, zone_id, pl);
+
+        /* Intro цвет: берём центр палитры, масштабируем по яркости зоны */
+        float base = clamp01f(pl->calc_brightness);
+        float rel  = (zp->rel_brightness > 0.0f) ? zp->rel_brightness : 1.0f;
+        float br   = base * rel;
+        if (g_amb_night_mode) {
+            br *= AMB_NIGHT_BRIGHTNESS_SCALE;
+        }
+        br = clamp01f(br);
+
+        uint8_t intro_r, intro_g, intro_b;
+        float base_u = (zp->accent_u > 0.0f) ? clamp01f(zp->accent_u) : 0.5f;
+        ws_palette_sample_rgb8(pal, base_u, &intro_r, &intro_g, &intro_b);
+        intro_r = (uint8_t)(intro_r * br);
+        intro_g = (uint8_t)(intro_g * br);
+        intro_b = (uint8_t)(intro_b * br);
+
+        uint32_t base_idx = led_index3(zm->first);
+        for (uint16_t i = 0; i < zm->count; ++i) {
+            uint32_t idx = base_idx + (uint32_t)i * 3u;
+            uint8_t s_r = zm->ws->rgb[idx + 0];
+            uint8_t s_g = zm->ws->rgb[idx + 1];
+            uint8_t s_b = zm->ws->rgb[idx + 2];
+
+            uint8_t out_r = (uint8_t)(intro_r * inv + s_r * blend + 0.5f);
+            uint8_t out_g = (uint8_t)(intro_g * inv + s_g * blend + 0.5f);
+            uint8_t out_b = (uint8_t)(intro_b * inv + s_b * blend + 0.5f);
+
+            zm->ws->rgb[idx + 0] = out_r;
+            zm->ws->rgb[idx + 1] = out_g;
+            zm->ws->rgb[idx + 2] = out_b;
         }
     }
 }

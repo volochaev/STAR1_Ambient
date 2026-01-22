@@ -17,10 +17,6 @@
  * - 0x325: OEM packets from vehicle (brightness, color)
  * - 0x353: Unified Master Protocol (discovery, sync, master, extended)
  *
- * @section Extended Mode
- * Extended mode allows manual theme selection. Toggled by 5 color changes
- * within 3 seconds. Settings are saved to flash memory with 2 second delay.
- *
  * @version 2.0
  * @date    2025
  ******************************************************************************
@@ -33,13 +29,13 @@
 #include "features.h"
 #include "flash_storage.h"
 #include "driver.h"
+#include <math.h>
 #include <string.h>
 
 /* ========== GLOBAL STATE (volatile для thread-safety) ========== */
 volatile amb_can_state_t g_amb_can = {
     .oem_color = 0,
     .oem_brightness = 1.0f,
-    .extended_mode = 0,
     .night_mode = 0,
     .bank_id = 0,
     .theme_index = 0,
@@ -62,18 +58,13 @@ static amb_can_state_t g_last_saved_state = {0};
 static uint8_t g_last_saved_valid = 0;
 
 /* ========== EXTENDED MODE TOGGLE ========== */
-#define EXT_MODE_TOGGLE_COLOR_CHANGES  5   /* Количество смен цвета для переключения */
-#define EXT_MODE_TOGGLE_TIME_WINDOW_MS 3000u  /* Окно времени в миллисекундах (3 сек) */
-static volatile uint32_t g_color_change_times[EXT_MODE_TOGGLE_COLOR_CHANGES] = {0};
-static volatile uint8_t g_color_change_count = 0;  /* Текущее количество смен цвета в окне */
+/* Extended mode удалён. Цветовые смены используются только для OEM циклического выбора тем. */
 
 /* ========== MASTER/SLAVE STATE ========== */
 static volatile int8_t g_role = -1;  /* -1 = unknown/auto, 0 = slave, 1 = master */
 static volatile uint32_t g_last_master_heartbeat_ms = 0;
-static uint32_t g_last_discovery_send_ms = 0;
-static uint32_t g_last_sync_send_ms = 0;
-static uint32_t g_last_ext_send_ms = 0;
 static volatile uint8_t g_discovered_boards[6] = {0, 0, 0, 0, 0, 0};  /* FL, FR, RL, RR, DASHBOARD, REAR */
+static volatile uint32_t g_discovery_last_seen_ms[6] = {0, 0, 0, 0, 0, 0};
 static uint32_t g_board_unique_id = 0;  /* можно использовать UID чипа */
 
 /* ========== SLEEP MODE STATE ========== */
@@ -83,33 +74,43 @@ static volatile uint8_t g_sleep_requested = 0;         /* Флаг запрос�
 static volatile uint8_t g_is_sleeping = 0;             /* Флаг текущего состояния сна */
 #endif
 
+static void reset_fx_state(scene_player_t *p)
+{
+    if (!p) return;
+    p->st_scene.t = 0.0f;
+    p->st_scene.speed = 0.0f;
+    p->st_scene.phase = 0.0f;
+    p->st_scene.a = 0.0f;
+    p->st_scene.b = 0.0f;
+    p->st_scene_next.t = 0.0f;
+    p->st_scene_next.speed = 0.0f;
+    p->st_scene_next.phase = 0.0f;
+    p->st_scene_next.a = 0.0f;
+    p->st_scene_next.b = 0.0f;
+}
+
 /* ========== INIT ========== */
 void can_ambient_init(FDCAN_HandleTypeDef *hfdcan)
 {
     g_can = hfdcan;
     g_role = -1;  /* unknown, будет определен через discovery */
     g_last_master_heartbeat_ms = 0;
-    g_last_discovery_send_ms = 0;
-    g_last_sync_send_ms = 0;
-    g_last_ext_send_ms = 0;
-    
-    /* Инициализация счетчика для переключения extended режима */
-    g_color_change_count = 0;
-    for (uint8_t i = 0; i < EXT_MODE_TOGGLE_COLOR_CHANGES; i++) {
-        g_color_change_times[i] = 0;
+    for (uint8_t i = 0; i < 6; i++) {
+        g_discovered_boards[i] = 0;
+        g_discovery_last_seen_ms[i] = 0;
     }
-    
+
     /* Load saved settings from Flash */
     if (flash_storage_load((amb_can_state_t *)&g_amb_can) == 0) {
         /* Successfully loaded - initialize last saved state for wear optimization */
         memcpy(&g_last_saved_state, (const void *)&g_amb_can, sizeof(amb_can_state_t));
         g_last_saved_valid = 1;
     }
-    
+
     /* Initialize save flags */
     g_settings_changed = 0;
     g_last_settings_change_ms = HAL_GetTick();
-    
+
     /* Генерируем уникальный ID для этой платы (можно использовать UID чипа) */
     g_board_unique_id = HAL_GetTick() ^ (BOARD_TYPE << 8);
 
@@ -146,12 +147,21 @@ static void handle_oem(const uint8_t *d, uint8_t len)
 {
     if (len < 4) return;
 
-    /* DBC: AmbBrt_Rq - байт 0, биты 5-7 (диапазон 0-5) */
+    /* Машина реально шлёт яркость сразу в байте 0 (0..5), хотя в DBC указаны биты 5-7 */
     uint8_t br_raw = d[0];
-//    uint8_t br_raw = (d[0] >> 5) & 0x07;
-    /* DBC: Amblgt_Col_Rg - байт 3, биты 4-5 (диапазон 0-3) */
-    uint8_t c1ol    = (d[3] >> 4);
-    uint8_t col    = (d[3] >> 4) & 0x03;
+    /* Машина реально шлёт цвет в байте 3, биты 2-3:
+     * 00 = Solar/Amber, 01 = Neutral/White, 10 = Polar/Blue
+     * Внутренняя нумерация: 0=Amber, 1=Blue, 2=White
+     */
+    uint8_t raw_col = (d[3] >> 2) & 0x03;
+    uint8_t col;
+
+    switch (raw_col) {
+        case 0: col = OEM_COLOR_AMBER; break;
+        case 1: col = OEM_COLOR_WHITE; break;
+        case 2: col = OEM_COLOR_BLUE;  break;
+        default: return;  /* Reserved / invalid */
+    }
 
     /* Валидация входных данных */
     if (col > 2) return;  /* oem_color должен быть 0-2 */
@@ -169,113 +179,10 @@ static void handle_oem(const uint8_t *d, uint8_t len)
     /* Критическая секция для изменения g_amb_can из ISR */
     __disable_irq();
     uint8_t old_color = g_amb_can.oem_color;
-    uint8_t extended_mode = g_amb_can.extended_mode;
     g_amb_can.oem_color = col;
     g_amb_can.oem_brightness = (float)br_raw / (float)OEM_BRIGHTNESS_MAX;
 
-    /* При смене цвета в CAN 0x325 меняем тему как в OEM, так и в extended режиме */
-    if (old_color != col) {
-        /* В extended режиме сбрасываем bank_id в 0, чтобы тема выбиралась на основе нового цвета */
-        if (extended_mode) {
-            g_amb_can.bank_id = 0;  /* 0 = auto from OEM color */
-        }
-        /* OEM mode does NOT change theme_index, но тема меняется через pick_oem_theme() */
-        
-        /* Отслеживание смены цвета для переключения extended режима */
-        uint32_t now_ms = HAL_GetTick();
-        
-        /* Удаляем старые записи, выходящие за окно времени */
-        uint8_t valid_count = 0;
-        for (uint8_t i = 0; i < g_color_change_count; i++) {
-            uint32_t age;
-            if (now_ms >= g_color_change_times[i]) {
-                age = now_ms - g_color_change_times[i];
-            } else {
-                /* Переполнение uint32_t - считаем запись устаревшей */
-                age = UINT32_MAX;
-            }
-            if (age <= EXT_MODE_TOGGLE_TIME_WINDOW_MS) {
-                g_color_change_times[valid_count++] = g_color_change_times[i];
-            }
-        }
-        g_color_change_count = valid_count;
-        
-        /* Добавляем новую смену цвета */
-        if (g_color_change_count < EXT_MODE_TOGGLE_COLOR_CHANGES) {
-            g_color_change_times[g_color_change_count++] = now_ms;
-        } else {
-            /* Сдвигаем массив влево и добавляем новое значение */
-            for (uint8_t i = 0; i < EXT_MODE_TOGGLE_COLOR_CHANGES - 1; i++) {
-                g_color_change_times[i] = g_color_change_times[i + 1];
-            }
-            g_color_change_times[EXT_MODE_TOGGLE_COLOR_CHANGES - 1] = now_ms;
-        }
-        
-        /* Проверяем, достигнуто ли условие для переключения extended режима */
-        if (g_color_change_count >= EXT_MODE_TOGGLE_COLOR_CHANGES) {
-            /* Вычисляем разницу времени с учетом возможного переполнения uint32_t */
-            uint32_t time_span;
-            if (g_color_change_times[EXT_MODE_TOGGLE_COLOR_CHANGES - 1] >= g_color_change_times[0]) {
-                time_span = g_color_change_times[EXT_MODE_TOGGLE_COLOR_CHANGES - 1] - 
-                           g_color_change_times[0];
-            } else {
-                /* Переполнение uint32_t - считаем, что прошло слишком много времени */
-                time_span = UINT32_MAX;
-            }
-            
-            if (time_span <= EXT_MODE_TOGGLE_TIME_WINDOW_MS) {
-                /* Переключаем extended режим */
-                g_amb_can.extended_mode = !g_amb_can.extended_mode;
-                
-                /* Сбрасываем счетчик после переключения */
-                g_color_change_count = 0;
-                
-                /* Если выходим из extended режима, сбрасываем bank_id и theme_index */
-                if (!g_amb_can.extended_mode) {
-                    g_amb_can.bank_id = 0;
-                    g_amb_can.theme_index = 0;
-                }
-                
-                /* Помечаем настройки как измененные для сохранения */
-                g_settings_changed = 1;
-                g_last_settings_change_ms = now_ms;
-            }
-        }
-    }
-    __enable_irq();  /* Восстанавливаем прерывания после критической секции */
-}
-
-static void handle_ext(const uint8_t *d, uint8_t len)
-{
-    if (len < 3) return;
-
-    /* Формат extended пакета: data[0] = 0x30 | flags, data[1] = bank_id, data[2] = theme_index */
-    uint8_t flags    = d[0] & 0x0F;  /* Извлекаем только flags (младшие 4 бита) */
-    uint8_t bank_id  = d[1];
-    uint8_t theme_id = d[2];
-
-    /* Валидация входных данных */
-    if (bank_id > 3) return;  /* bank_id должен быть 0-3 */
-
-    /* Критическая секция для изменения g_amb_can из ISR */
-    __disable_irq();
-    uint8_t old_extended = g_amb_can.extended_mode;
-    uint8_t old_bank = g_amb_can.bank_id;
-    uint8_t old_theme = g_amb_can.theme_index;
-
-    g_amb_can.extended_mode = (flags & EXT_FLAG_EXTENDED) ? 1 : 0;
-    g_amb_can.night_mode    = (flags & EXT_FLAG_NIGHT) ? 1 : 0;
-
-    g_amb_can.bank_id       = bank_id;
-    g_amb_can.theme_index   = theme_id;
-    
-    /* Помечаем настройки как измененные, если что-то изменилось */
-    if (old_extended != g_amb_can.extended_mode || 
-        old_bank != g_amb_can.bank_id || 
-        old_theme != g_amb_can.theme_index) {
-        g_settings_changed = 1;
-        g_last_settings_change_ms = HAL_GetTick();
-    }
+    (void)old_color;
     __enable_irq();  /* Восстанавливаем прерывания после критической секции */
 }
 
@@ -285,8 +192,8 @@ static void handle_master(const uint8_t *d, uint8_t len)
     if (len < 4) return;
 
     /* Формат master пакета:
-     * [0] = 0x10 | flags (extended_mode, night_mode в младших битах)
-     * [1] = bank_id
+     * [0] = 0x10 | flags (night_mode в бит0)
+     * [1] = bank_id (0..2 = OEM color)
      * [2] = theme_index
      * [3] = oem_color (0=Amber,1=Blue,2=White)
      * [4] = brightness_raw (0..5)
@@ -298,7 +205,7 @@ static void handle_master(const uint8_t *d, uint8_t len)
     uint8_t br_raw = (len > 4) ? d[4] : 5;
 
     /* Валидация входных данных */
-    if (bank_id > 3) return;  /* bank_id должен быть 0-3 */
+    if (bank_id > 2) return;  /* bank_id должен быть 0-2 (OEM color) */
     if (oem_col > 2) return;  /* oem_color должен быть 0-2 */
     if (br_raw > 5) br_raw = 5;  /* brightness_raw ограничиваем 0-5 */
 
@@ -313,20 +220,19 @@ static void handle_master(const uint8_t *d, uint8_t len)
 
     /* Критическая секция для изменения g_amb_can из ISR */
     __disable_irq();
-    uint8_t old_extended = g_amb_can.extended_mode;
     uint8_t old_bank = g_amb_can.bank_id;
     uint8_t old_theme = g_amb_can.theme_index;
 
-    g_amb_can.extended_mode = (flags & EXT_FLAG_EXTENDED) ? 1 : 0;
-    g_amb_can.night_mode    = (flags & EXT_FLAG_NIGHT) ? 1 : 0;
+    g_amb_can.night_mode    = (flags & MASTER_FLAG_NIGHT) ? 1 : 0;
     g_amb_can.bank_id       = bank_id;
     g_amb_can.theme_index   = theme_id;
     g_amb_can.oem_color     = oem_col;
     g_amb_can.oem_brightness = (float)br_raw / (float)OEM_BRIGHTNESS_MAX;
-    
+    /* Обновляем циклический индекс банка для корректного сохранения */
+    g_amb_can.oem_theme_indices[oem_col] = theme_id % 255;
+
     /* Помечаем настройки как измененные, если что-то изменилось */
-    if (old_extended != g_amb_can.extended_mode || 
-        old_bank != g_amb_can.bank_id || 
+    if (old_bank != g_amb_can.bank_id ||
         old_theme != g_amb_can.theme_index) {
         g_settings_changed = 1;
         g_last_settings_change_ms = HAL_GetTick();
@@ -338,14 +244,15 @@ static void handle_master(const uint8_t *d, uint8_t len)
 static void handle_discovery(const uint8_t *d, uint8_t len)
 {
     if (len < 2) return;
-    
+
     uint8_t board_type = d[0] & 0x0F;  /* Извлекаем board_type (младшие 4 бита) */
-    
+
     /* Запоминаем, что эта плата присутствует */
     if (board_type < 6) {
         /* Критическая секция для изменения g_discovered_boards из ISR */
         __disable_irq();
         g_discovered_boards[board_type] = 1;
+        g_discovery_last_seen_ms[board_type] = HAL_GetTick();
         __enable_irq();
     }
 }
@@ -354,32 +261,34 @@ static void handle_discovery(const uint8_t *d, uint8_t len)
 static void handle_sync(const uint8_t *d, uint8_t len)
 {
     if (len < 2) return;
-    
+
     /* Формат sync: data[0] = 0x20 | bank_id, data[1] = theme_index */
     /* Можно обновить bank_id и theme_index из sync пакета для синхронизации */
     uint8_t bank_id = d[0] & 0x0F;  /* Извлекаем bank_id (младшие 4 бита) */
     uint8_t theme_id = d[1];
-    
+
     /* Критическая секция для изменения g_amb_can и g_last_master_heartbeat_ms из ISR */
     __disable_irq();
     /* Master жив, обновляем время последнего heartbeat */
     g_last_master_heartbeat_ms = HAL_GetTick();
-    
+
     /* Обновляем состояние из sync пакета (опционально) */
     g_amb_can.bank_id = bank_id;
     g_amb_can.theme_index = theme_id;
+    /* Обновляем циклический индекс для сохранения */
+    g_amb_can.oem_theme_indices[bank_id] = theme_id % 255;
     __enable_irq();
-    
+
     /* Если мы были в режиме failover и получили sync от master - остаемся slave */
     if (g_role == 1 && !can_ambient_is_master()) {
         /* Проверяем, есть ли плата с более высоким приоритетом */
         /* Приоритет: FL > FR > DASHBOARD > RL > RR > REAR */
         if (g_discovered_boards[BOARD_TYPE_FL] && BOARD_TYPE != BOARD_TYPE_FL) {
             g_role = 0;  /* FL существует, мы не master */
-        } else if (g_discovered_boards[BOARD_TYPE_FR] && 
+        } else if (g_discovered_boards[BOARD_TYPE_FR] &&
                    BOARD_TYPE != BOARD_TYPE_FL && BOARD_TYPE != BOARD_TYPE_FR) {
             g_role = 0;  /* FR существует, мы не master */
-        } else if (g_discovered_boards[BOARD_TYPE_DASHBOARD] && 
+        } else if (g_discovered_boards[BOARD_TYPE_DASHBOARD] &&
                    BOARD_TYPE != BOARD_TYPE_FL && BOARD_TYPE != BOARD_TYPE_FR &&
                    BOARD_TYPE != BOARD_TYPE_DASHBOARD) {
             g_role = 0;  /* DASHBOARD существует, мы не master */
@@ -392,9 +301,9 @@ void can_ambient_process_rx(uint32_t id, uint8_t *data, uint8_t len)
     if (id == CAN_MASTER_ID) {
         /* Все пакеты с ID 0x353 различаются по типу в data[0] */
         if (len < 1) return;
-        
+
         uint8_t pkt_type = data[0] & PKT_TYPE_MASK;
-        
+
         if (pkt_type == PKT_TYPE_DISCOVERY) {
             /* Discovery пакет: data[0] = board_type (0-5) */
             if (len >= 2 && (data[0] & ~PKT_TYPE_MASK) < 6) {
@@ -415,27 +324,21 @@ void can_ambient_process_rx(uint32_t id, uint8_t *data, uint8_t len)
             /* Sync пакет: data[0] = 0x20 | bank_id, data[1] = theme_index */
         handle_sync(data, len);
             return;
-        } else if (pkt_type == PKT_TYPE_EXT) {
-            /* Extended пакет: data[0] = 0x30 | flags, data[1] = bank_id, data[2] = theme_index */
-            if (can_ambient_is_master()) {
-                /* Master не обрабатывает свои собственные пакеты */
-                return;
-            }
-            handle_ext(data, len);
-            /* Обновляем heartbeat при получении ext пакета */
-            g_last_master_heartbeat_ms = HAL_GetTick();
-            return;
         }
         /* Неизвестный тип пакета - игнорируем */
         return;
     }
-    
+
     if (can_ambient_is_master()) {
         /* Master обрабатывает пакеты от машины */
         if (id == CAN_OEM_ID) {
             handle_oem(data, len);
         }
         /* CAN_EXT_ID теперь отправляется от master, а не принимается */
+    }
+    /* Пока роль не определена, принимаем OEM пакет для старта протокола */
+    if (g_role == -1 && id == CAN_OEM_ID) {
+        handle_oem(data, len);
     }
 }
 
@@ -456,16 +359,16 @@ static ws_theme_id_t pick_oem_theme(void)
         oem_theme_indices[i] = g_amb_can.oem_theme_indices[i];
     }
     __enable_irq();
-    
+
     if (oem_color >= OEM_COLOR_MAX) {
         return ws_theme_default_for_oem(OEM_COLOR_AMBER);
     }
-    
+
     const ws_theme_bank_t *bank = ws_theme_get_bank((oem_color_id_t)oem_color);
     if (!bank || !bank->themes || bank->count == 0) {
         return ws_theme_default_for_oem((oem_color_id_t)oem_color);
     }
-    
+
     /* При смене OEM цвета - переходим к следующей теме в новом банке */
     if (last_oem_color != oem_color) {
         /* Инкрементируем индекс для нового банка (циклически) */
@@ -474,53 +377,94 @@ static ws_theme_id_t pick_oem_theme(void)
         if (next_idx >= bank->count) {
             next_idx = 0;
         }
-        
+
         /* Обновляем состояние атомарно */
         __disable_irq();
         g_amb_can.oem_theme_indices[oem_color] = next_idx;
         g_amb_can.last_oem_color = oem_color;
         __enable_irq();
-        
+
         oem_theme_indices[oem_color] = next_idx;
         g_oem_indices_dirty = 1;  /* Пометить для сохранения в flash */
     }
-    
-    return bank->themes[oem_theme_indices[oem_color]];
-}
 
-static ws_theme_id_t pick_ext_theme(void)
-{
-    const ws_theme_bank_t *bank = NULL;
-    
-    /* Атомарное чтение для защиты от race conditions */
-    uint8_t bank_id, oem_color, theme_index;
+    /* Обновляем синхронизационные поля для мастера/слейва */
     __disable_irq();
-    bank_id = g_amb_can.bank_id;
-    oem_color = g_amb_can.oem_color;
-    theme_index = g_amb_can.theme_index;
+    g_amb_can.bank_id = oem_color;                 /* 0..2 */
+    g_amb_can.theme_index = g_amb_can.oem_theme_indices[oem_color];
     __enable_irq();
 
-    switch (bank_id) {
-    case 1: bank = ws_theme_get_bank(OEM_COLOR_AMBER); break;
-    case 2: bank = ws_theme_get_bank(OEM_COLOR_BLUE); break;
-    case 3: bank = ws_theme_get_bank(OEM_COLOR_WHITE); break;
-    default: /* auto from OEM color */
-        bank = ws_theme_get_bank((oem_color_id_t)oem_color);
-        break;
+    /* Если индекс/банк изменились – помечаем для сохранения в flash */
+    static uint8_t last_bank = 0xFF;
+    static uint8_t last_theme_idx = 0xFF;
+    uint8_t bank_now = oem_color;
+    uint8_t theme_idx_now = g_amb_can.oem_theme_indices[oem_color];
+    if (bank_now != last_bank || theme_idx_now != last_theme_idx) {
+        g_settings_changed = 1;
+        g_last_settings_change_ms = HAL_GetTick();
+        last_bank = bank_now;
+        last_theme_idx = theme_idx_now;
     }
 
-    if (!bank || !bank->themes || bank->count == 0)
-        return 0;
-
-    uint8_t idx = theme_index % bank->count;
-    return bank->themes[idx];
+    return bank->themes[oem_theme_indices[oem_color]];
 }
 
 /* ========== UPDATE PLAYER ========== */
 
+/* OEM brightness LUT (steps 0..5 → perceptual dimming 0..1) */
+static const float g_oem_brightness_lut[OEM_BRIGHTNESS_MAX + 1] = {
+    0.00f,  /* 0 */
+    0.32f,  /* 1 */
+    0.46f,  /* 2 */
+    0.60f,  /* 3 */
+    0.72f,  /* 4 */
+    0.86f   /* 5 */
+};
+
+static float map_oem_brightness(float x)
+{
+    if (x < 0.0f) x = 0.0f;
+    if (x > 1.0f) x = 1.0f;
+    /* Приводим нормализованное значение обратно к шагу 0..5 и берём из LUT */
+    int idx = (int)(x * (float)OEM_BRIGHTNESS_MAX + 0.5f);
+    if (idx < 0) idx = 0;
+    if (idx > (int)OEM_BRIGHTNESS_MAX) idx = OEM_BRIGHTNESS_MAX;
+    return g_oem_brightness_lut[idx];
+}
+
+static float theme_base_brightness(const ws_theme_desc_t *T)
+{
+    if (!T) return AMB_THEME_MIN_BRIGHTNESS;
+    float tb = T->theme_brightness;
+    if (tb < AMB_THEME_MIN_BRIGHTNESS) tb = AMB_THEME_MIN_BRIGHTNESS;
+    if (tb > 1.0f) tb = 1.0f;
+    return tb;
+}
+
+/* Плавный переход яркости (slew) за ~200 мс на полный ход */
+static float slew_dimming(float current, float target, uint32_t now_ms, uint32_t *last_ms)
+{
+    if (!last_ms) return target;
+    if (*last_ms == 0u) {
+        *last_ms = now_ms;
+        return target;
+    }
+    uint32_t dt = (now_ms >= *last_ms) ? (now_ms - *last_ms) : 0u;
+    *last_ms = now_ms;
+    float max_delta = (float)dt / 200.0f;  /* полный шаг за 200 мс */
+    if (max_delta > 1.0f) max_delta = 1.0f;
+    float delta = target - current;
+    if (delta > max_delta) delta = max_delta;
+    if (delta < -max_delta) delta = -max_delta;
+    return current + delta;
+}
+
 void can_ambient_update(ws2812_t *ws, scene_player_t *pl)
 {
     if (!pl) return;
+
+    static float smoothed_dimming = 1.0f;
+    static uint32_t smoothed_last_ms = 0;
 
     /* Atomic copy of state using memcpy (struct assignment may not be atomic) */
     amb_can_state_t state;
@@ -528,19 +472,9 @@ void can_ambient_update(ws2812_t *ws, scene_player_t *pl)
     memcpy(&state, (const void *)&g_amb_can, sizeof(amb_can_state_t));
     __enable_irq();
 
-    /* Brightness (always follows OEM) - обновляем theme_dimming */
-    pl->theme_dimming = state.oem_brightness;
-    pl->calc_brightness = pl->theme_brightness * pl->theme_dimming;
-    if (pl->calc_brightness > 1.0f) pl->calc_brightness = 1.0f;
-    if (pl->calc_brightness < 0.0f) pl->calc_brightness = 0.0f;
-
-    ws_theme_id_t theme_now;
-
-    if (state.extended_mode == 0) {
-        theme_now = pick_oem_theme();
-    } else {
-        theme_now = pick_ext_theme();
-    }
+    ws_theme_id_t theme_now = pick_oem_theme();
+    uint8_t same_bank_now = ws_theme_same_bank(pl->theme, theme_now);
+    uint8_t theme_change_requires_outro = 0;
 
     /* В демо режиме для master пропускаем смену темы через CAN - тема управляется через demo_mode_update() */
     /* Проверяем, не включен ли демо режим (через проверку DEMO_MODE, если он определен) */
@@ -553,6 +487,37 @@ void can_ambient_update(ws2812_t *ws, scene_player_t *pl)
     }
 #endif
 
+    /* Дежурное определение, будет ли смена темы требовать outro на этом тике */
+    if (pl->stage == PST_SCENE && !same_bank_now && pl->theme != theme_now) {
+        theme_change_requires_outro = 1;
+    }
+
+    /* Brightness (always follows OEM), но во время OUTRO или при старте outro удерживаем прежнее значение,
+       чтобы новые OEM пакеты не влияли на завершающий fade-out. Дополнительно плавно тянем шаги (~200 мс). */
+    static float last_non_outro_dimming = 1.0f;
+    float target_dimming = map_oem_brightness(state.oem_brightness);
+
+    uint8_t hold_dimming = (pl->stage == PST_OUTRO) || theme_change_requires_outro;
+    if (!hold_dimming) {
+        last_non_outro_dimming = target_dimming;
+    } else {
+        target_dimming = last_non_outro_dimming;
+    }
+
+    /* Плавное изменение dimming, но не во время hold */
+    uint32_t now_ms = HAL_GetTick();
+    if (!hold_dimming) {
+        smoothed_dimming = slew_dimming(smoothed_dimming, target_dimming, now_ms, &smoothed_last_ms);
+    } else {
+        smoothed_last_ms = now_ms;  /* сброс таймера, чтобы после hold не было скачка */
+    }
+
+    pl->theme_dimming = smoothed_dimming;
+
+    pl->calc_brightness = pl->theme_brightness * smoothed_dimming;
+    if (pl->calc_brightness > 1.0f) pl->calc_brightness = 1.0f;
+    if (pl->calc_brightness < 0.0f) pl->calc_brightness = 0.0f;
+
     /* Проверяем, завершился ли outro, и нужно ли запустить intro новой темы */
     if (g_has_pending_theme && pl->stage == PST_IDLE) {
         /* outro завершен, запускаем intro новой темы */
@@ -560,10 +525,11 @@ void can_ambient_update(ws2812_t *ws, scene_player_t *pl)
             pl->theme = g_pending_theme;
             const ws_theme_desc_t *T = ws_theme_get(g_pending_theme);
             if (T) {
-                pl->theme_brightness = T->theme_brightness;
+                pl->theme_brightness = theme_base_brightness(T);
                 pl->calc_brightness = pl->theme_brightness * pl->theme_dimming;
                 if (pl->calc_brightness > 1.0f) pl->calc_brightness = 1.0f;
                 if (pl->calc_brightness < 0.0f) pl->calc_brightness = 0.0f;
+                reset_fx_state(pl);
                 player_start_intro(ws, pl);
             }
         } else {
@@ -571,10 +537,11 @@ void can_ambient_update(ws2812_t *ws, scene_player_t *pl)
             pl->theme = g_pending_theme;
             const ws_theme_desc_t *T = ws_theme_get(g_pending_theme);
             if (T) {
-                pl->theme_brightness = T->theme_brightness;
+                pl->theme_brightness = theme_base_brightness(T);
                 pl->calc_brightness = pl->theme_brightness * pl->theme_dimming;
                 if (pl->calc_brightness > 1.0f) pl->calc_brightness = 1.0f;
                 if (pl->calc_brightness < 0.0f) pl->calc_brightness = 0.0f;
+                reset_fx_state(pl);
                 pl->stage = PST_SCENE;
                 pl->t0_ms = HAL_GetTick();
             }
@@ -596,6 +563,7 @@ void can_ambient_update(ws2812_t *ws, scene_player_t *pl)
         if (!skip_outro) {
             /* intro завершен, но тема изменилась во время intro, запускаем outro */
             if (ws) {
+                reset_fx_state(pl);
                 player_start_outro(ws, pl);
             }
             return;
@@ -604,14 +572,13 @@ void can_ambient_update(ws2812_t *ws, scene_player_t *pl)
 
     /* Check if theme changed */
     /* Если тема в том же банке - НЕ запускаем outro (циклическое переключение) */
-    uint8_t same_bank = ws_theme_same_bank(pl->theme, theme_now);
 #if AMB_ENABLE_AUTO_ROTATE
     /* При авто-ротации также проверяем crossfade_active */
-    uint8_t theme_really_changed = (pl->theme != theme_now) 
-                                 && !pl->crossfade_active 
-                                 && !same_bank;
+    uint8_t theme_really_changed = (pl->theme != theme_now)
+                                 && !pl->crossfade_active
+                                 && !same_bank_now;
 #else
-    uint8_t theme_really_changed = (pl->theme != theme_now) && !same_bank;
+    uint8_t theme_really_changed = (pl->theme != theme_now) && !same_bank_now;
 #endif
     if (theme_really_changed) {
         /* Тема изменилась на другой банк - используем outro/intro */
@@ -622,16 +589,18 @@ void can_ambient_update(ws2812_t *ws, scene_player_t *pl)
                 g_pending_theme = theme_now;
                 g_has_pending_theme = 1;
                 /* Запускаем outro текущей темы */
+                reset_fx_state(pl);
                 player_start_outro(ws, pl);
             } else if (pl->stage == PST_IDLE) {
                 /* Если в IDLE - сразу запускаем intro новой темы */
                 pl->theme = theme_now;
                 const ws_theme_desc_t *T = ws_theme_get(theme_now);
                 if (T) {
-                    pl->theme_brightness = T->theme_brightness;
+                    pl->theme_brightness = theme_base_brightness(T);
                     pl->calc_brightness = pl->theme_brightness * pl->theme_dimming;
                     if (pl->calc_brightness > 1.0f) pl->calc_brightness = 1.0f;
                     if (pl->calc_brightness < 0.0f) pl->calc_brightness = 0.0f;
+                    reset_fx_state(pl);
                     player_start_intro(ws, pl);
                 }
             } else {
@@ -654,25 +623,28 @@ void can_ambient_update(ws2812_t *ws, scene_player_t *pl)
             pl->theme = theme_now;
             const ws_theme_desc_t *T = ws_theme_get(theme_now);
             if (T) {
-                pl->theme_brightness = T->theme_brightness;
+                pl->theme_brightness = theme_base_brightness(T);
                 pl->calc_brightness = pl->theme_brightness * pl->theme_dimming;
                 if (pl->calc_brightness > 1.0f) pl->calc_brightness = 1.0f;
                 if (pl->calc_brightness < 0.0f) pl->calc_brightness = 0.0f;
+                reset_fx_state(pl);
                 pl->stage = PST_SCENE;
                 pl->t0_ms = HAL_GetTick();
             }
         }
-    } else if (pl->theme != theme_now && same_bank) {
+    } else if (pl->theme != theme_now && same_bank_now) {
         /* Тема изменилась внутри того же банка (циклическое переключение) */
 #if AMB_ENABLE_AUTO_ROTATE
         /* При включённой авто-ротации кроссфейд обрабатывается в scene_player.c */
         /* Просто обновляем тему - scene_player подхватит изменение */
         if (pl->stage == PST_SCENE && !pl->crossfade_active) {
+            reset_fx_state(pl);
             player_start_theme(ws, pl, theme_now);
         }
 #else
         /* При выключенной авто-ротации - применяем тему напрямую */
         if (pl->stage == PST_SCENE) {
+            reset_fx_state(pl);
             player_start_theme(ws, pl, theme_now);
         }
 #endif
@@ -690,7 +662,7 @@ uint8_t can_ambient_is_master(void)
     if (AMB_ROLE_MASTER >= 0) {
         return (uint8_t)AMB_ROLE_MASTER;
     }
-    
+
     /* Иначе используем динамически определенную роль */
     return (g_role == 1) ? 1 : 0;
 }
@@ -702,7 +674,15 @@ uint8_t can_ambient_oem_received(void)
 
 void can_ambient_reset_oem_received(void)
 {
+    __disable_irq();
     g_oem_packet_received = 0;
+    if (AMB_ROLE_MASTER < 0) {
+        g_role = -1;
+    }
+    g_last_master_heartbeat_ms = 0;
+    memset((void *)g_discovered_boards, 0, sizeof(g_discovered_boards));
+    memset((void *)g_discovery_last_seen_ms, 0, sizeof(g_discovery_last_seen_ms));
+    __enable_irq();
 }
 
 void can_ambient_update_role(uint32_t now_ms)
@@ -712,10 +692,10 @@ void can_ambient_update_role(uint32_t now_ms)
         g_role = AMB_ROLE_MASTER;
         return;
     }
-    
+
     /* Автоматическое определение master по приоритету */
     /* Приоритет: FL > FR > DASHBOARD > RL > RR > REAR */
-    
+
     /* Атомарное чтение g_discovered_boards для защиты от race conditions */
     uint8_t discovered_boards[6];
     __disable_irq();
@@ -723,9 +703,9 @@ void can_ambient_update_role(uint32_t now_ms)
         discovered_boards[i] = g_discovered_boards[i];
     }
     __enable_irq();
-    
+
     uint8_t should_be_master = 0;
-    
+
     /* Проверяем, должны ли мы быть master */
     if (BOARD_TYPE == BOARD_TYPE_FL) {
         /* FL - наивысший приоритет */
@@ -735,28 +715,28 @@ void can_ambient_update_role(uint32_t now_ms)
         should_be_master = !discovered_boards[BOARD_TYPE_FL];
     } else if (BOARD_TYPE == BOARD_TYPE_DASHBOARD) {
         /* DASHBOARD может быть master, если нет FL и FR */
-        should_be_master = !discovered_boards[BOARD_TYPE_FL] && 
+        should_be_master = !discovered_boards[BOARD_TYPE_FL] &&
                           !discovered_boards[BOARD_TYPE_FR];
     } else if (BOARD_TYPE == BOARD_TYPE_RL) {
         /* RL может быть master, если нет FL, FR, DASHBOARD */
-        should_be_master = !discovered_boards[BOARD_TYPE_FL] && 
+        should_be_master = !discovered_boards[BOARD_TYPE_FL] &&
                           !discovered_boards[BOARD_TYPE_FR] &&
                           !discovered_boards[BOARD_TYPE_DASHBOARD];
     } else if (BOARD_TYPE == BOARD_TYPE_RR) {
         /* RR может быть master, если нет FL, FR, DASHBOARD, RL */
-        should_be_master = !discovered_boards[BOARD_TYPE_FL] && 
+        should_be_master = !discovered_boards[BOARD_TYPE_FL] &&
                           !discovered_boards[BOARD_TYPE_FR] &&
                           !discovered_boards[BOARD_TYPE_DASHBOARD] &&
                           !discovered_boards[BOARD_TYPE_RL];
     } else if (BOARD_TYPE == BOARD_TYPE_REAR) {
         /* REAR может быть master, если нет всех остальных */
-        should_be_master = !discovered_boards[BOARD_TYPE_FL] && 
+        should_be_master = !discovered_boards[BOARD_TYPE_FL] &&
                           !discovered_boards[BOARD_TYPE_FR] &&
                           !discovered_boards[BOARD_TYPE_DASHBOARD] &&
                           !discovered_boards[BOARD_TYPE_RL] &&
                           !discovered_boards[BOARD_TYPE_RR];
     }
-    
+
     /* Проверяем timeout master heartbeat */
     if (g_role == 0 && should_be_master) {
         /* Мы slave, но master не отвечает */
@@ -764,7 +744,7 @@ void can_ambient_update_role(uint32_t now_ms)
         __disable_irq();
         uint32_t last_heartbeat = g_last_master_heartbeat_ms;
         __enable_irq();
-        
+
         uint32_t timeout;
         if (last_heartbeat == 0) {
             timeout = UINT32_MAX;  /* Никогда не получали heartbeat */
@@ -774,7 +754,7 @@ void can_ambient_update_role(uint32_t now_ms)
             /* Переполнение uint32_t */
             timeout = UINT32_MAX - last_heartbeat + now_ms;
         }
-        
+
         if (timeout > MASTER_HEARTBEAT_TIMEOUT_MS) {
             /* Master пропал, берем на себя роль */
             __disable_irq();
@@ -789,24 +769,24 @@ void can_ambient_update_role(uint32_t now_ms)
             __disable_irq();
             g_role = 0;  /* FL существует, мы не master */
             __enable_irq();
-        } else if (discovered_boards[BOARD_TYPE_FR] && 
+        } else if (discovered_boards[BOARD_TYPE_FR] &&
                    BOARD_TYPE != BOARD_TYPE_FL && BOARD_TYPE != BOARD_TYPE_FR) {
             __disable_irq();
             g_role = 0;  /* FR существует, мы не master */
             __enable_irq();
-        } else if (discovered_boards[BOARD_TYPE_DASHBOARD] && 
+        } else if (discovered_boards[BOARD_TYPE_DASHBOARD] &&
                    BOARD_TYPE != BOARD_TYPE_FL && BOARD_TYPE != BOARD_TYPE_FR &&
                    BOARD_TYPE != BOARD_TYPE_DASHBOARD) {
             __disable_irq();
             g_role = 0;  /* DASHBOARD существует, мы не master */
             __enable_irq();
-        } else if (discovered_boards[BOARD_TYPE_RL] && 
+        } else if (discovered_boards[BOARD_TYPE_RL] &&
                    BOARD_TYPE != BOARD_TYPE_FL && BOARD_TYPE != BOARD_TYPE_FR &&
                    BOARD_TYPE != BOARD_TYPE_DASHBOARD && BOARD_TYPE != BOARD_TYPE_RL) {
             __disable_irq();
             g_role = 0;  /* RL существует, мы не master */
             __enable_irq();
-        } else if (discovered_boards[BOARD_TYPE_RR] && 
+        } else if (discovered_boards[BOARD_TYPE_RR] &&
                    BOARD_TYPE != BOARD_TYPE_FL && BOARD_TYPE != BOARD_TYPE_FR &&
                    BOARD_TYPE != BOARD_TYPE_DASHBOARD && BOARD_TYPE != BOARD_TYPE_RL &&
                    BOARD_TYPE != BOARD_TYPE_RR) {
@@ -820,41 +800,32 @@ void can_ambient_update_role(uint32_t now_ms)
         g_role = should_be_master ? 1 : 0;
         __enable_irq();
     }
-    
-    /* Отправляем discovery пакеты */
-    if (now_ms - g_last_discovery_send_ms >= DISCOVERY_INTERVAL_MS) {
-        can_ambient_send_discovery_packet();
-        g_last_discovery_send_ms = now_ms;
-    }
-    
-    /* Master отправляет sync пакеты */
-    if (can_ambient_is_master() && (now_ms - g_last_sync_send_ms >= SYNC_INTERVAL_MS)) {
-        can_ambient_send_sync_packet();
-        g_last_sync_send_ms = now_ms;
-    }
-    
-    /* Master отправляет extended пакеты для синхронизации расширенного режима */
-    /* Отправляем с той же частотой, что и sync пакеты, когда включен extended режим */
-    /* Атомарное чтение extended_mode */
-    uint8_t extended_mode;
-    __disable_irq();
-    extended_mode = g_amb_can.extended_mode;
-    __enable_irq();
-    
-    if (can_ambient_is_master() && extended_mode && 
-        (now_ms - g_last_ext_send_ms >= SYNC_INTERVAL_MS)) {
-        can_ambient_send_ext_packet();
-        g_last_ext_send_ms = now_ms;
-    }
-    
+
     /* Стареем информацию о других платах (если не получаем discovery 5 сек) */
     static uint32_t last_discovery_cleanup_ms = 0;
     if (now_ms - last_discovery_cleanup_ms >= 5000u) {
-        /* Discovery пакеты обновляют g_discovered_boards автоматически */
         /* Если плата не отправляет discovery 5 сек, она считается отсутствующей */
+        __disable_irq();
+        for (uint8_t i = 0; i < 6; i++) {
+            uint32_t last_seen = g_discovery_last_seen_ms[i];
+            if (last_seen == 0) {
+                continue;
+            }
+            uint32_t age;
+            if (now_ms >= last_seen) {
+                age = now_ms - last_seen;
+            } else {
+                age = UINT32_MAX;
+            }
+            if (age > 5000u) {
+                g_discovered_boards[i] = 0;
+                g_discovery_last_seen_ms[i] = 0;
+            }
+        }
+        __enable_irq();
         last_discovery_cleanup_ms = now_ms;
     }
-    
+
     /* Сохраняем настройки в Flash, если они изменились и прошло достаточно времени */
     /* g_oem_indices_dirty также триггерит сохранение (циклические индексы тем) */
     if (g_settings_changed || g_oem_indices_dirty) {
@@ -865,15 +836,16 @@ void can_ambient_update_role(uint32_t now_ms)
             /* Переполнение uint32_t */
             time_since_change = UINT32_MAX;
         }
-        
+
         /* Для oem_indices используем тот же delay чтобы не писать flash слишком часто */
         if (g_oem_indices_dirty && !g_settings_changed) {
             g_last_settings_change_ms = now_ms;
             g_settings_changed = 1;  /* Использовать стандартный механизм задержки */
             g_oem_indices_dirty = 0;
         }
-        
+
         if (time_since_change >= AMB_FLASH_SAVE_DELAY_MS) {
+            uint8_t saved_ok = 0;
             /* Only save on master board */
             if (can_ambient_is_master()) {
                 /* Atomic copy of state for saving (memcpy for thread-safety) */
@@ -881,15 +853,14 @@ void can_ambient_update_role(uint32_t now_ms)
                 __disable_irq();
                 memcpy(&state_to_save, (const void *)&g_amb_can, sizeof(amb_can_state_t));
                 __enable_irq();
-                
+
                 /* Flash wear optimization: only save if data actually changed */
                 uint8_t data_changed = 0;
                 if (!g_last_saved_valid) {
                     data_changed = 1;  /* First save */
                 } else {
                     /* Compare relevant fields */
-                    if (state_to_save.extended_mode != g_last_saved_state.extended_mode ||
-                        state_to_save.bank_id != g_last_saved_state.bank_id ||
+                    if (state_to_save.bank_id != g_last_saved_state.bank_id ||
                         state_to_save.theme_index != g_last_saved_state.theme_index ||
                         state_to_save.last_oem_color != g_last_saved_state.last_oem_color ||
                         state_to_save.oem_theme_indices[0] != g_last_saved_state.oem_theme_indices[0] ||
@@ -898,17 +869,23 @@ void can_ambient_update_role(uint32_t now_ms)
                         data_changed = 1;
                     }
                 }
-                
+
                 if (data_changed) {
                     if (flash_storage_save(&state_to_save) == 0) {
                         /* Update last saved state on successful save */
                         memcpy(&g_last_saved_state, &state_to_save, sizeof(amb_can_state_t));
                         g_last_saved_valid = 1;
+                        saved_ok = 1;
                     }
+                } else {
+                    /* Nothing changed, treat as success to clear flags */
+                    saved_ok = 1;
                 }
             }
-            g_settings_changed = 0;
-            g_oem_indices_dirty = 0;
+            if (saved_ok) {
+                g_settings_changed = 0;
+                g_oem_indices_dirty = 0;
+            }
         }
     }
 }
@@ -935,8 +912,7 @@ void can_ambient_send_master_packet(void)
 
     /* Формируем пакет с текущим состоянием */
     uint8_t flags = 0;
-    if (state.extended_mode) flags |= EXT_FLAG_EXTENDED;
-    if (state.night_mode) flags |= EXT_FLAG_NIGHT;
+    if (state.night_mode) flags |= MASTER_FLAG_NIGHT;
 
     tx_data[0] = PKT_TYPE_MASTER | (flags & 0x0F);  /* Тип пакета + flags */
     tx_data[1] = state.bank_id;
@@ -981,49 +957,6 @@ void can_ambient_send_sync_packet(void)
     tx_data[0] = PKT_TYPE_SYNC | (bank_id & 0x0F);
     tx_data[1] = theme_index;
     tx_data[2] = 0;
-    tx_data[3] = 0;
-    tx_data[4] = 0;
-    tx_data[5] = 0;
-    tx_data[6] = 0;
-    tx_data[7] = 0;
-
-    tx_header.Identifier = CAN_MASTER_ID;  /* Используем тот же ID */
-    tx_header.IdType = FDCAN_STANDARD_ID;
-    tx_header.TxFrameType = FDCAN_DATA_FRAME;
-    tx_header.DataLength = FDCAN_DLC_BYTES_8;
-    tx_header.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
-    tx_header.BitRateSwitch = FDCAN_BRS_OFF;
-    tx_header.FDFormat = FDCAN_CLASSIC_CAN;
-    tx_header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
-    tx_header.MessageMarker = 0;
-
-    HAL_StatusTypeDef status = HAL_FDCAN_AddMessageToTxFifoQ(g_can, &tx_header, tx_data);
-    (void)status;  /* Игнорируем ошибку - в production можно добавить retry логику */
-}
-
-void can_ambient_send_ext_packet(void)
-{
-    if (!g_can || !can_ambient_is_master()) {
-        return;
-    }
-
-    FDCAN_TxHeaderTypeDef tx_header;
-    uint8_t tx_data[8];
-
-    /* Atomic copy of state using memcpy (struct assignment may not be atomic) */
-    amb_can_state_t state;
-    __disable_irq();
-    memcpy(&state, (const void *)&g_amb_can, sizeof(amb_can_state_t));
-    __enable_irq();
-
-    /* Формат extended пакета: data[0] = 0x30 | flags, data[1] = bank_id, data[2] = theme_index */
-    uint8_t flags = 0;
-    if (state.extended_mode) flags |= EXT_FLAG_EXTENDED;
-    if (state.night_mode) flags |= EXT_FLAG_NIGHT;
-
-    tx_data[0] = PKT_TYPE_EXT | (flags & 0x0F);  /* Тип пакета + flags */
-    tx_data[1] = state.bank_id;
-    tx_data[2] = state.theme_index;
     tx_data[3] = 0;
     tx_data[4] = 0;
     tx_data[5] = 0;
@@ -1163,7 +1096,7 @@ void can_ambient_exit_sleep(void)
     /* Перезапускаем FDCAN */
     if (g_can) {
         HAL_FDCAN_Start(g_can);
-        HAL_FDCAN_ActivateNotification(g_can, 
+        HAL_FDCAN_ActivateNotification(g_can,
             FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO1_NEW_MESSAGE, 0);
     }
 

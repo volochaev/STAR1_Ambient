@@ -11,6 +11,8 @@
  */
 
 #include "driver.h"
+#include "features.h"
+#include <math.h>
 #include <string.h>
 
 static uint8_t g_power_state = 0u;
@@ -27,6 +29,28 @@ static inline float ws_effective_brightness(const ws2812_t *ws)
     float br = ws->br_forced ? ws->br_forced_value : ws->global_brightness;
     return clamp01f(br);
 }
+
+#if AMB_ENABLE_GAMMA
+static uint8_t g_gamma_fwd[256];
+static uint8_t g_gamma_inv[256];
+static uint8_t g_gamma_ready = 0u;
+
+static void gamma_tables_init(void)
+{
+    if (g_gamma_ready) return;
+    const float inv255 = 1.0f / 255.0f;
+    for (uint32_t i = 0; i < 256u; ++i) {
+        float v = (float)i * inv255;
+        float fwd = powf(v, AMB_GAMMA_EXP) * 255.0f;
+        float inv = powf(v, 1.0f / AMB_GAMMA_EXP) * 255.0f;
+        if (fwd < 0.0f) fwd = 0.0f; if (fwd > 255.0f) fwd = 255.0f;
+        if (inv < 0.0f) inv = 0.0f; if (inv > 255.0f) inv = 255.0f;
+        g_gamma_fwd[i] = (uint8_t)(fwd + 0.5f);
+        g_gamma_inv[i] = (uint8_t)(inv + 0.5f);
+    }
+    g_gamma_ready = 1u;
+}
+#endif
 
 static uint32_t channel_to_active_flag(uint32_t tim_channel)
 {
@@ -63,11 +87,38 @@ static void pack_into(ws2812_t *ws, uint32_t *dst)
         for (; bits_written < bits_payload; ++bits_written)
             *dst++ = zero;
     } else {
+#if AMB_ENABLE_GAMMA
+        gamma_tables_init();
+#endif
+#if AMB_ENABLE_DITHERING
+        uint32_t t_ms = HAL_GetTick();
+#endif
         for (uint16_t i = 0; i < ws->led_count && bits_written < bits_payload; ++i) {
             for (uint32_t c = 0; c < BYTES_PER_LED && bits_written < bits_payload; ++c) {
                 uint8_t v = *src++;
                 if (bq != 255u) {
-                    v = (uint8_t)((v * bq + 127u) / 255u);
+#if AMB_ENABLE_GAMMA
+                    uint32_t lin = g_gamma_inv[v];
+                    uint32_t scaled = lin * bq;
+#else
+                    uint32_t scaled = (uint32_t)v * bq;
+#endif
+                    uint32_t vq = scaled / 255u;
+#if AMB_ENABLE_DITHERING
+                    uint32_t rem = scaled - (vq * 255u);
+                    if (rem != 0u) {
+                        uint32_t seed = t_ms + (uint32_t)i * 131u + (uint32_t)c * 17u;
+                        if ((seed & 0xFFu) < rem) {
+                            vq++;
+                        }
+                    }
+#endif
+                    if (vq > 255u) vq = 255u;
+#if AMB_ENABLE_GAMMA
+                    v = g_gamma_fwd[vq];
+#else
+                    v = (uint8_t)vq;
+#endif
                 }
                 for (int b = 7; b >= 0 && bits_written < bits_payload; --b) {
                     *dst++ = (v & (1u << b)) ? one : zero;

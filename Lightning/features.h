@@ -31,7 +31,7 @@ extern "C" {
 /* ====== FEATURE TOGGLES (compile-time) ================================= */
 
 #define AMB_ENABLE_GAMMA        1       /* 1 = enable gamma correction */
-#define AMB_GAMMA_EXP           2.2f
+#define AMB_GAMMA_EXP           2.2f    /* 2.2 = ближе к реальному восприятию, меньше "выцветания" на макс. яркости */
 #define AMB_ENABLE_DITHERING    1       /* 1 = enable temporal dithering */
 #define AMB_ENABLE_ZONE_FX      1       /* 1 = enable zone effects (breath/flow) */
 #define AMB_ENABLE_WATCHDOG     1       /* 1 = enable IWDG watchdog */
@@ -41,7 +41,7 @@ extern "C" {
 
 #define AMB_ENABLE_AUTO_ROTATE          0       /* 1 = auto-rotate themes within bank */
 #define AMB_AUTO_ROTATE_INTERVAL_SEC    10u     /* Theme change interval (seconds) */
-#define AMB_CROSSFADE_DURATION_MS       5000u   /* Crossfade duration (ms) */
+#define AMB_CROSSFADE_DURATION_MS       1600u   /* Crossfade duration (ms) — вернули исходную плавность */
 #define AMB_MAX_CROSSFADE_LEDS          256u    /* Max LEDs for crossfade temp buffer */
 
 /* ====== NIGHT MODE (runtime) =========================================== */
@@ -49,13 +49,19 @@ extern "C" {
 
 extern uint8_t g_amb_night_mode;
 
-#define AMB_NIGHT_BRIGHTNESS_SCALE   0.30f  /* Brightness coefficient in night mode (0..1) */
+#define AMB_NIGHT_BRIGHTNESS_SCALE   0.40f  /* Brightness coefficient in night mode (0..1) */
+
+/* ====== OEM BRIGHTNESS CURVE =========================================== */
+/* Формирует кривую из шага 0..5 OEM в линейную яркость 0..1 */
+#define AMB_BRIGHTNESS_FLOOR   0.10f   /* Минимум даже на шаге 1 (видимость низов) */
+#define AMB_BRIGHTNESS_CEIL    0.95f   /* Верхний предел (оставляем запас цвета) */
+#define AMB_BRIGHTNESS_EXP     0.55f   /* Экспонента кривой ( <1 приподнимает низы ) */
 
 /* ====== SLEEP MODE (low power) ========================================== */
 /* Automatic sleep mode when no CAN activity. Wake up via CAN RX EXTI. */
 
 #define AMB_ENABLE_SLEEP_MODE       1      /* 1 = enable sleep mode */
-#define AMB_SLEEP_TIMEOUT_SEC       60u     /* Sleep timeout (seconds) */
+#define AMB_SLEEP_TIMEOUT_SEC       4u     /* Sleep timeout (seconds) */
 #define AMB_SLEEP_FADE_OUT_MS       2000u   /* Fade-out duration before sleep (ms) */
 
 /* ====== FLASH STORAGE =================================================== */
@@ -69,20 +75,30 @@ extern uint8_t g_amb_night_mode;
 #define FX_WELCOME_TIME_SCALE       0.85f   /* Animation completes at ~0.85, leaving 0.15 for settle */
 #define FX_WELCOME_WAVE_START       0.10f   /* When waves begin */
 #define FX_WELCOME_WAVE_DURATION    0.50f   /* Waves duration in normalized time */
-#define FX_WELCOME_WAVE_GAIN_MAX    0.25f   /* Max brightness boost from waves */
+#define FX_WELCOME_WAVE_GAIN_MAX    0.06f   /* Max brightness boost from waves (было 0.25f) */
 #define FX_WELCOME_PULSE_START      0.55f   /* When pulse begins */
 #define FX_WELCOME_PULSE_DURATION   0.20f   /* Pulse duration */
-#define FX_WELCOME_PULSE_AMPLITUDE  0.08f   /* Pulse brightness amplitude */
+#define FX_WELCOME_PULSE_AMPLITUDE  0.03f   /* Pulse brightness amplitude (было 0.08f) */
 #define FX_WELCOME_CENTER_OFFSET    0.47f   /* Center position offset */
 #define FX_WELCOME_DIST_SCALE       0.25f   /* Edge dimming scale */
 #define FX_WELCOME_SETTLE_START     0.75f   /* When settle phase begins */
+#define FX_WELCOME_FINAL_SCALE      0.65f   /* Доп. понижение финала интро (чтобы совпасть со сценой) */
 #define FX_GOODBYE_CURTAIN_SCALE    1.2f    /* Curtain closing speed */
+
+/* ====== THEME / FX GLOBAL TUNING ======================================= */
+#define AMB_THEME_MIN_BRIGHTNESS    0.70f   /* Универсальная база для тем (чтобы даже тёмные не гасли) */
+#define AMB_BRIDGE_DURATION_MS       400u   /* Плавный переход intro->scene (быстрее заезд в сцену) */
+#define FX_SPATIAL_GROUP            4u      /* Сколько физических LED объединяем в один "виртуальный" пиксель */
+#define AMB_INTRO_DURATION_MS       1400u   /* Intro анимация при смене темы */
+#define AMB_OUTRO_DURATION_MS       1200u   /* Outro анимация при смене темы */
 
 /* ====== CAN PROTOCOL TIMINGS ============================================ */
 
 #define AMB_CAN_MASTER_TX_INTERVAL_MS   100u    /* Master packet interval */
 #define AMB_CAN_SYNC_INTERVAL_MS        250u    /* Sync/heartbeat interval */
 #define AMB_CAN_DISCOVERY_INTERVAL_MS   1000u   /* Discovery packet interval */
+#define AMB_CAN_STARTUP_DISCOVERY_MS    1200u   /* Discovery-only window after first OEM packet */
+#define AMB_CAN_ACTIVE_TIMEOUT_MS       2000u   /* Stop TX if no CAN RX within this window */
 
 #ifdef __cplusplus
 }

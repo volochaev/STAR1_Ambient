@@ -8,7 +8,7 @@
 uint8_t g_amb_night_mode = 0;   // 0 = день, 1 = ночь
 
 /* Длительность плавного перехода intro -> scene (мс) */
-#define BRIDGE_DURATION_MS      1000u
+#define BRIDGE_DURATION_MS      AMB_BRIDGE_DURATION_MS
 
 /* Auto-rotate configuration (from features.h) */
 #if AMB_ENABLE_AUTO_ROTATE
@@ -24,6 +24,21 @@ static float clamp01f(float x)
     if (x < 0.0f) return 0.0f;
     if (x > 1.0f) return 1.0f;
     return x;
+}
+
+/* Snapshot буфера финального кадра intro для мягкого бриджа */
+static uint8_t g_bridge_intro_rgb[AMB_MAX_CROSSFADE_LEDS * 3];
+static uint16_t g_bridge_intro_count = 0;
+static uint16_t g_bridge_intro_first = 0;
+static uint8_t g_bridge_intro_valid = 0;
+
+static float theme_base_brightness(const ws_theme_desc_t *T)
+{
+    if (!T) return AMB_THEME_MIN_BRIGHTNESS;
+    float tb = T->theme_brightness;
+    if (tb < AMB_THEME_MIN_BRIGHTNESS) tb = AMB_THEME_MIN_BRIGHTNESS;
+    if (tb > 1.0f) tb = 1.0f;
+    return tb;
 }
 
 /* Quintic smoothstep (smoother than cubic, better for visual transitions) */
@@ -90,7 +105,7 @@ void player_start_theme(ws2812_t *ws, scene_player_t *pl, ws_theme_id_t theme)
     const ws_theme_desc_t *T = ws_theme_get(theme);
     if (!T) return;
 
-    pl->theme_brightness = T->theme_brightness;
+    pl->theme_brightness = theme_base_brightness(T);
     pl->calc_brightness  = clamp01f(pl->theme_brightness * pl->theme_dimming);
     pl->stage            = PST_SCENE;
     pl->t0_ms            = HAL_GetTick();
@@ -120,7 +135,7 @@ void player_start_intro(ws2812_t *ws, scene_player_t *pl)
     uint16_t count = zm->count;
 
     float base_br = clamp01f(pl->theme_brightness * pl->theme_dimming);
-    ws_oneshot_start(ws, &pl->intro, FX_WELCOME, pal, base_br, 4000u, first, count);
+    ws_oneshot_start(ws, &pl->intro, FX_WELCOME, pal, base_br, AMB_INTRO_DURATION_MS, first, count);
     pl->stage = PST_INTRO;
     pl->t0_ms = HAL_GetTick();
 }
@@ -140,7 +155,7 @@ void player_start_outro(ws2812_t *ws, scene_player_t *pl)
     uint16_t count = zm->count;
 
     float base_br = clamp01f(pl->theme_brightness * pl->theme_dimming);
-    ws_oneshot_start(ws, &pl->outro, FX_GOODBYE, pal, base_br, 4000u, first, count);
+    ws_oneshot_start(ws, &pl->outro, FX_GOODBYE, pal, base_br, AMB_OUTRO_DURATION_MS, first, count);
     pl->stage = PST_OUTRO;
     pl->t0_ms = HAL_GetTick();
 }
@@ -178,6 +193,19 @@ void player_tick(ws2812_t *ws, scene_player_t *pl, uint32_t delta_ms)
             pl->st_scene.phase  = 0.0f;
             pl->st_scene.a      = 0.0f;
             pl->st_scene.b      = 0.0f;
+
+            /* Сохраняем финальный кадр intro для бриджа */
+            const zone_map_t *zm = &g_zone_map[WS_ZONE_STRIP];
+            uint16_t first = zm->first;
+            uint16_t count = zm->count;
+            uint16_t copy_count = (count > AMB_MAX_CROSSFADE_LEDS) ? AMB_MAX_CROSSFADE_LEDS : count;
+            g_bridge_intro_count = copy_count;
+            g_bridge_intro_first = first;
+            g_bridge_intro_valid = 1;
+            uint8_t *src = (uint8_t*)ws->rgb + first * 3u;
+            for (uint16_t i = 0; i < copy_count * 3u; ++i) {
+                g_bridge_intro_rgb[i] = src[i];
+            }
         }
     }
     break;
@@ -231,17 +259,19 @@ void player_tick(ws2812_t *ws, scene_player_t *pl, uint32_t delta_ms)
             } else {
                 uint32_t cf_elapsed = HAL_GetTick() - pl->crossfade_start_ms;
                 float cf_progress = (float)cf_elapsed / (float)CROSSFADE_DURATION_MS;
+                float tb_curr = theme_base_brightness(T);
+                float tb_next = theme_base_brightness(T_next);
                 
                 /* Blend brightness between themes during crossfade */
-                float blended_brightness = T->theme_brightness * (1.0f - cf_progress) 
-                                         + T_next->theme_brightness * cf_progress;
+                float blended_brightness = tb_curr * (1.0f - cf_progress) 
+                                         + tb_next * cf_progress;
                 pl->calc_brightness = clamp01f(blended_brightness * pl->theme_dimming);
                 ws_set_global_brightness(ws, pl->calc_brightness);
                 
                 if (cf_progress >= 1.0f) {
                     /* Crossfade complete - switch to next theme */
                     pl->theme = pl->theme_next;
-                    pl->theme_brightness = T_next->theme_brightness;
+                    pl->theme_brightness = tb_next;
                     pl->calc_brightness = clamp01f(pl->theme_brightness * pl->theme_dimming);
                     pl->st_scene = pl->st_scene_next;
                     pl->crossfade_active = 0;
@@ -372,22 +402,39 @@ void player_tick(ws2812_t *ws, scene_player_t *pl, uint32_t delta_ms)
         uint16_t first = zm->first;
         uint16_t count = zm->count;
 
-        /* Финальное состояние intro - solid color из центра палитры */
-        uint8_t intro_r, intro_g, intro_b;
-        ws_palette_sample_rgb8(pal, 0.5f, &intro_r, &intro_g, &intro_b);
+        /* Финальное состояние intro - снимаем из сохранённого буфера, fallback: центр палитры */
+        const uint8_t *intro_buf = NULL;
+        uint16_t intro_count = 0;
+        if (g_bridge_intro_valid && g_bridge_intro_first == first) {
+            intro_buf = g_bridge_intro_rgb;
+            intro_count = g_bridge_intro_count;
+        } else {
+            g_bridge_intro_valid = 0;
+        }
+
+        uint8_t intro_r_fallback, intro_g_fallback, intro_b_fallback;
+        ws_palette_sample_rgb8(pal, 0.5f, &intro_r_fallback, &intro_g_fallback, &intro_b_fallback);
 
         /* Применяем эффект сцены (записывает цвета в буфер) */
         ws_fx_apply(ws, T->fx_main, pal, &pl->st_scene, delta_ms, first, count);
 
-        /* Screen blend для плавного перехода без затемнения */
-        /* При blend=0: intro, при blend=1: scene, посередине: screen blend */
-        float i_r = intro_r / 255.0f;
-        float i_g = intro_g / 255.0f;
-        float i_b = intro_b / 255.0f;
-        float mid_factor = 4.0f * blend * inv_blend;  /* Peak at blend=0.5 */
+        /* Линейный бленд intro->scene; screen выключен (screen_mix=0) */
+        const float screen_mix = 0.0f;
         
         for (uint16_t i = 0; i < count; ++i) {
             uint32_t idx = (uint32_t)(first + i) * 3u;
+            /* Вытаскиваем сохранённый цвет интро, либо fallback */
+            float i_r, i_g, i_b;
+            if (intro_buf && i < intro_count) {
+                i_r = intro_buf[i * 3u + 0] / 255.0f;
+                i_g = intro_buf[i * 3u + 1] / 255.0f;
+                i_b = intro_buf[i * 3u + 2] / 255.0f;
+            } else {
+                i_r = intro_r_fallback / 255.0f;
+                i_g = intro_g_fallback / 255.0f;
+                i_b = intro_b_fallback / 255.0f;
+            }
+
             uint8_t scene_r = ws->rgb[idx + 0];
             uint8_t scene_g = ws->rgb[idx + 1];
             uint8_t scene_b = ws->rgb[idx + 2];
@@ -401,14 +448,15 @@ void player_tick(ws2812_t *ws, scene_player_t *pl, uint32_t delta_ms)
             float scr_g = i_g + s_g - i_g * s_g;
             float scr_b = i_b + s_b - i_b * s_b;
             
-            /* Linear blend with screen boost in middle */
+            /* Linear blend */
             float lin_r = i_r * inv_blend + s_r * blend;
             float lin_g = i_g * inv_blend + s_g * blend;
             float lin_b = i_b * inv_blend + s_b * blend;
             
-            float out_r = lin_r + (scr_r - lin_r) * mid_factor;
-            float out_g = lin_g + (scr_g - lin_g) * mid_factor;
-            float out_b = lin_b + (scr_b - lin_b) * mid_factor;
+            /* Добавляем screen поверх линейного, чтобы не было затемнения */
+            float out_r = lin_r + (scr_r - lin_r) * screen_mix;
+            float out_g = lin_g + (scr_g - lin_g) * screen_mix;
+            float out_b = lin_b + (scr_b - lin_b) * screen_mix;
             
             if (out_r > 1.0f) out_r = 1.0f;
             if (out_g > 1.0f) out_g = 1.0f;

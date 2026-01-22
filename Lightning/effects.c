@@ -25,6 +25,19 @@ static float clamp01f(float x)
     return x;
 }
 
+/* Коэффициент позиции с укрупнением шага: несколько LED = один виртуальный пиксель */
+static float fx_pos_norm(uint16_t i, uint16_t count)
+{
+    if (count <= 1u) return 0.5f;
+#if FX_SPATIAL_GROUP > 1
+    uint16_t group = i / FX_SPATIAL_GROUP;
+    uint16_t groups = (count + FX_SPATIAL_GROUP - 1u) / FX_SPATIAL_GROUP;
+    return (groups <= 1u) ? 0.5f : (float)group / (float)(groups - 1u);
+#else
+    return (float)i / (float)(count - 1u);
+#endif
+}
+
 /* =========================================================================
  * EASING FUNCTIONS для премиальной плавности W223/EQS
  * ========================================================================= */
@@ -85,7 +98,7 @@ static void fx_solid_gradient(ws2812_t *ws,
     (void)st;
     if (!ws || !ws->rgb || !pal || count == 0) return;
     for (uint16_t i = 0; i < count; ++i) {
-        float u = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
+        float u = fx_pos_norm(i, count);
         uint8_t r,g,b;
         ws_palette_sample_rgb8(pal, u, &r, &g, &b);
         set_rgb(ws, first + i, r, g, b);
@@ -101,12 +114,12 @@ static void fx_gradient_flow(ws2812_t *ws,
 {
     if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
-    float speed = (st->speed > 0.0f) ? st->speed : 0.03f;
+    float speed = (st->speed > 0.0f) ? st->speed : 0.024f;
     st->t += (float)delta_ms * 0.001f * speed;
     float offset = st->t - floorf(st->t);
 
     for (uint16_t i = 0; i < count; ++i) {
-        float u = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
+        float u = fx_pos_norm(i, count);
         float uu = u + offset;
         uu -= floorf(uu);
         uint8_t r,g,b;
@@ -124,13 +137,13 @@ static void fx_soft_breathe(ws2812_t *ws,
 {
     if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
-    float freq = (st->speed > 0.0f) ? st->speed : 0.07f;
+    float freq = (st->speed > 0.0f) ? st->speed : 0.05f;
     st->t += (float)delta_ms * 0.001f * freq;
     float s = sinf(st->t * 2.0f * (float)M_PI) * 0.5f + 0.5f;
-    float br = 0.25f + 0.35f * s;
+    float br = 0.30f + 0.30f * s;
 
     for (uint16_t i = 0; i < count; ++i) {
-        float u = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
+        float u = fx_pos_norm(i, count);
         uint8_t r,g,b;
         ws_palette_sample_rgb8(pal, u, &r, &g, &b);
         r = (uint8_t)(r * br);
@@ -150,7 +163,7 @@ static void fx_dual_zone(ws2812_t *ws,
     if (!ws || !ws->rgb || !pal || count == 0) return;
 
     for (uint16_t i = 0; i < count; ++i) {
-        float v = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
+        float v = fx_pos_norm(i, count);
         /* Создаём два градиента: от начала до середины и от середины до конца */
         float u = (v < 0.5f)
                   ? (v * 2.0f)           /* первая половина: 0..0.5 -> 0..1 */
@@ -174,7 +187,7 @@ static void fx_twin_wave(ws2812_t *ws,
     st->t += (float)delta_ms * 0.001f * speed;
 
     for (uint16_t i = 0; i < count; ++i) {
-        float x = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
+        float x = fx_pos_norm(i, count);
         float w1 = 0.5f * (sinf((x - st->t) * 6.2831f) * 0.5f + 0.5f);
         float w2 = 0.5f * (sinf((1.0f - x - st->t) * 6.2831f) * 0.5f + 0.5f);
         float w = clamp01f(w1 + w2);
@@ -189,37 +202,38 @@ static void fx_twin_wave(ws2812_t *ws,
     }
 }
 
-static void fx_mb_ocean_flow(ws2812_t *ws,
-                             const ws_palette_t *pal,
-                             fx_state_t *st,
-                             uint32_t delta_ms,
-                             uint16_t first,
-                             uint16_t count)
+static void fx_ocean_flow(ws2812_t *ws,
+                          const ws_palette_t *pal,
+                          fx_state_t *st,
+                          uint32_t delta_ms,
+                          uint16_t first,
+                          uint16_t count)
 {
     if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
     /* 1) Очень медленная скорость – чтобы шаг между кадрами был крошечный */
-    float speed = (st->speed > 0.0f) ? st->speed : 0.008f;  // было 0.01, можно даже 0.005
+    float speed = (st->speed > 0.0f) ? st->speed : 0.006f;  // мягче движение
+    float t_prev = st->t;  /* нужен, чтобы на первом кадре не мешать интро-цвет */
     st->t += (float)delta_ms * 0.001f * speed;
     float offset = st->t - floorf(st->t);
 
     /* 2) Сглаживание по ленте (между соседними диодами) */
-    const float spatial_smooth  = 0.70f;  // 0.7–0.8 даёт мягкий "водяной" эффект
+    const float spatial_smooth  = 0.85f;  // сильнее размазываем соседей
 
     /* 3) Лёгкое временное сглаживание (между кадрами) */
     /* На первом кадре после смены темы/интро не подмешиваем старый кадр,
      * иначе в новых палитрах видно «мигание» от старых цветов. */
-    uint8_t first_frame = (st->t == 0.0f) && (st->phase == 0.0f) &&
+    uint8_t first_frame = (t_prev == 0.0f) && (st->phase == 0.0f) &&
                           (st->a == 0.0f)  && (st->b == 0.0f);
-    const float temporal_smooth = first_frame ? 0.0f : 0.70f;  // 0.7 – новый кадр только на 30% сразу
+    const float temporal_smooth = first_frame ? 0.0f : 0.92f;  // LPF для плавных шагов
 
     uint8_t prev_r = 0;
     uint8_t prev_g = 0;
     uint8_t prev_b = 0;
 
     for (uint16_t i = 0; i < count; ++i) {
-        float u  = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
-        float uu = u + offset;
+        float u  = fx_pos_norm(i, count);
+        float uu = u + offset * 0.55f;  // уменьшаем силу смещения, шаги мягче
         uu -= floorf(uu);
 
         uint8_t r_raw, g_raw, b_raw;
@@ -257,42 +271,48 @@ static void fx_mb_ocean_flow(ws2812_t *ws,
     }
 }
 
-static void fx_mb_two_tone_wave(ws2812_t *ws,
-                                const ws_palette_t *pal,
-                                fx_state_t *st,
-                                uint32_t delta_ms,
-                                uint16_t first,
-                                uint16_t count)
-{
-    fx_twin_wave(ws, pal, st, delta_ms, first, count);
-}
-
-static void fx_mb_energize_pulse(ws2812_t *ws,
-                                 const ws_palette_t *pal,
-                                 fx_state_t *st,
-                                 uint32_t delta_ms,
-                                 uint16_t first,
-                                 uint16_t count)
+static void fx_two_tone_wave(ws2812_t *ws,
+                             const ws_palette_t *pal,
+                             fx_state_t *st,
+                             uint32_t delta_ms,
+                             uint16_t first,
+                             uint16_t count)
 {
     if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
-    float freq = (st->speed > 0.0f) ? st->speed : 0.1f;
-    st->t += (float)delta_ms * 0.001f * freq;
-    float s = sinf(st->t * 2.0f * (float)M_PI) * 0.5f + 0.5f;
+    /* Плавная двухтонная волна с лёгким сдвигом фаз — ближе к EQS */
+    float speed = (st->speed > 0.0f) ? st->speed : 0.028f; /* замедлили для более плавного слайда */
+    st->t += (float)delta_ms * 0.001f * speed;
+    float phase_a = st->t * 2.0f * (float)M_PI;
+    float phase_b = phase_a + (float)M_PI * 0.35f; /* небольшой сдвиг для richer look */
 
     for (uint16_t i = 0; i < count; ++i) {
-        float u = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
-        uint8_t r,g,b;
-        ws_palette_sample_rgb8(pal, u, &r, &g, &b);
-        float k = 0.2f + 0.8f * s;
-        r = (uint8_t)(r * k);
-        g = (uint8_t)(g * k);
-        b = (uint8_t)(b * k);
+        float pos = fx_pos_norm(i, count);
+
+        /* Две выборки палитры с осциллирующим смещением */
+        float u1 = pos + 0.07f * sinf(phase_a + pos * (float)M_PI);
+        float u2 = pos + 0.07f * sinf(phase_b + pos * (float)M_PI);
+        u1 -= floorf(u1);
+        u2 -= floorf(u2);
+
+        uint8_t r1,g1,b1, r2,g2,b2;
+        ws_palette_sample_rgb8(pal, u1, &r1, &g1, &b1);
+        ws_palette_sample_rgb8(pal, u2, &r2, &g2, &b2);
+
+        /* Crossfade между двумя цветами волны */
+        float mix_raw = 0.5f + 0.5f * sinf(phase_a + pos * 2.5f * (float)M_PI);
+        float mix = smoothstep(mix_raw);  /* сглаживаем пики, чтобы волна была шелковистой */
+        float inv = 1.0f - mix;
+
+        uint8_t r = (uint8_t)(r1 * inv + r2 * mix + 0.5f);
+        uint8_t g = (uint8_t)(g1 * inv + g2 * mix + 0.5f);
+        uint8_t b = (uint8_t)(b1 * inv + b2 * mix + 0.5f);
+
         set_rgb(ws, first + i, r, g, b);
     }
 }
 
-static void fx_mb_velvet_flow(ws2812_t *ws,
+static void fx_energize_pulse(ws2812_t *ws,
                               const ws_palette_t *pal,
                               fx_state_t *st,
                               uint32_t delta_ms,
@@ -301,8 +321,43 @@ static void fx_mb_velvet_flow(ws2812_t *ws,
 {
     if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
+    /* Медленный вдох-выдох + редкий быстрый акцент — как «энергетический» */
+    float base_freq = (st->speed > 0.0f) ? st->speed : 0.055f;
+    st->t += (float)delta_ms * 0.001f * base_freq;
+    float envelope = 0.35f + 0.65f * (0.5f + 0.5f * sinf(st->t * 2.0f * (float)M_PI));
+
+    /* Быстрый акцент поверх: короткий импульс */
+    float accent = 0.0f;
+    float pulse_phase = fmodf(st->t * 0.35f, 1.0f); /* раз в ~3 сек */
+    if (pulse_phase < 0.20f) {
+        float p = pulse_phase / 0.20f;
+        accent = 0.35f * sinf(p * (float)M_PI); /* плавный одиночный удар */
+    }
+
+    for (uint16_t i = 0; i < count; ++i) {
+        float u = fx_pos_norm(i, count);
+        uint8_t r,g,b;
+        ws_palette_sample_rgb8(pal, u, &r, &g, &b);
+        float k = clamp01f(envelope + accent);
+        r = (uint8_t)(r * k);
+        g = (uint8_t)(g * k);
+        b = (uint8_t)(b * k);
+        set_rgb(ws, first + i, r, g, b);
+    }
+}
+
+static void fx_velvet_flow(ws2812_t *ws,
+                           const ws_palette_t *pal,
+                           fx_state_t *st,
+                           uint32_t delta_ms,
+                           uint16_t first,
+                           uint16_t count)
+{
+    if (!ws || !ws->rgb || !pal || !st || count == 0) return;
+
     /* Ещё более медленная скорость для бархатного эффекта */
     float speed = (st->speed > 0.0f) ? st->speed : 0.005f;
+    float t_prev = st->t;  /* нужен, чтобы на первом кадре не мешать интро-цвет */
     st->t += (float)delta_ms * 0.001f * speed;
     float offset = st->t - floorf(st->t);
 
@@ -310,7 +365,7 @@ static void fx_mb_velvet_flow(ws2812_t *ws,
     const float spatial_smooth  = 0.85f;  // 0.85 даёт очень плавный "бархатный" эффект
 
     /* Более сильное временное сглаживание */
-    uint8_t first_frame = (st->t == 0.0f) && (st->phase == 0.0f) &&
+    uint8_t first_frame = (t_prev == 0.0f) && (st->phase == 0.0f) &&
                           (st->a == 0.0f)  && (st->b == 0.0f);
     const float temporal_smooth = first_frame ? 0.0f : 0.80f;  // 80% старого кадра
 
@@ -319,7 +374,7 @@ static void fx_mb_velvet_flow(ws2812_t *ws,
     uint8_t prev_b = 0;
 
     for (uint16_t i = 0; i < count; ++i) {
-        float u  = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
+        float u  = fx_pos_norm(i, count);
         float uu = u + offset;
         uu -= floorf(uu);
 
@@ -357,28 +412,27 @@ static void fx_mb_velvet_flow(ws2812_t *ws,
     }
 }
 
-static void fx_mb_gentle_pulse(ws2812_t *ws,
-                               const ws_palette_t *pal,
-                               fx_state_t *st,
-                               uint32_t delta_ms,
-                               uint16_t first,
-                               uint16_t count)
+static void fx_gentle_pulse(ws2812_t *ws,
+                            const ws_palette_t *pal,
+                            fx_state_t *st,
+                            uint32_t delta_ms,
+                            uint16_t first,
+                            uint16_t count)
 {
     if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
-    /* Медленная частота для мягкого пульса */
-    float freq = (st->speed > 0.0f) ? st->speed : 0.04f;  // ~0.04 Гц = 25 сек на цикл
+    /* Очень медленный, глубокий пульс без резких вершин */
+    float freq = (st->speed > 0.0f) ? st->speed : 0.018f;  // ~0.018 Гц ≈ 55 сек на цикл
     st->t += (float)delta_ms * 0.001f * freq;
-    
-    /* Плавная синусоидальная пульсация с easing */
-    float raw_s = sinf(st->t * 2.0f * (float)M_PI) * 0.5f + 0.5f;  // 0..1
-    float s = smoothstep(raw_s);  // Применяем easing для более премиальной плавности
-    
-    /* Более мягкий диапазон пульсации (60% - 100%) */
-    float k = 0.60f + 0.40f * s;
+
+    float raw_s = 0.5f + 0.5f * sinf(st->t * 2.0f * (float)M_PI);  // 0..1
+    float s = smoothstep(raw_s);  // мягкая кривая
+
+    /* Диапазон 50%..80% для деликатного дыхания */
+    float k = 0.50f + 0.30f * s;
 
     for (uint16_t i = 0; i < count; ++i) {
-        float u = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
+        float u = fx_pos_norm(i, count);
         uint8_t r,g,b;
         ws_palette_sample_rgb8(pal, u, &r, &g, &b);
         r = (uint8_t)(r * k);
@@ -420,7 +474,7 @@ static void fx_aurora(ws2812_t *ws,
     float wave3_amp = 0.2f;
 
     for (uint16_t i = 0; i < count; ++i) {
-        float x = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
+        float x = fx_pos_norm(i, count);
         
         /* Три синусоиды для aurora эффекта */
         float w1 = sinf((x * wave1_freq + st->t) * 2.0f * (float)M_PI) * wave1_amp;
@@ -433,7 +487,7 @@ static void fx_aurora(ws2812_t *ws,
         u = u - floorf(u);  /* Wrap around */
         
         /* Волнообразное изменение яркости */
-        float brightness_wave = 0.7f + 0.3f * sinf((x * 2.0f + st->t * 0.5f) * 2.0f * (float)M_PI);
+        float brightness_wave = 0.8f + 0.2f * sinf((x * 2.0f + st->t * 0.5f) * 2.0f * (float)M_PI);
         brightness_wave = smoothstep(brightness_wave);
         
         uint8_t r, g, b;
@@ -461,18 +515,25 @@ static void fx_cascade(ws2812_t *ws,
 {
     if (!ws || !ws->rgb || !pal || !st || count == 0) return;
 
-    /* Умеренная скорость для каскадного эффекта */
-    float speed = (st->speed > 0.0f) ? st->speed : 0.015f;
+    /* Замедлили каскад и усилили сглаживание, чтобы убрать строб */
+    float speed = (st->speed > 0.0f) ? st->speed : 0.007f;
+    float t_prev = st->t;
     st->t += (float)delta_ms * 0.001f * speed;
     
     /* Позиция "головы" каскада (циклическая) */
     float head_pos = st->t - floorf(st->t);
     
     /* Ширина каскадной волны */
-    float cascade_width = 0.35f;
+    float cascade_width = 0.42f;
+
+    /* Временное сглаживание */
+    uint8_t first_frame = (t_prev == 0.0f) && (st->phase == 0.0f) &&
+                          (st->a == 0.0f)  && (st->b == 0.0f);
+    const float temporal_smooth = first_frame ? 0.0f : 0.92f;
+    float inv_t = 1.0f - temporal_smooth;
 
     for (uint16_t i = 0; i < count; ++i) {
-        float x = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
+        float x = fx_pos_norm(i, count);
         
         /* Расстояние до головы каскада (с учётом wrap-around) */
         float dist = x - head_pos;
@@ -488,18 +549,28 @@ static void fx_cascade(ws2812_t *ws,
             /* За пределами каскада - базовая яркость */
             cascade_factor = 0.0f;
         }
+        cascade_factor = smoothstep(cascade_factor);
         
         /* Комбинированная яркость: база + каскад */
-        float brightness = 0.3f + 0.7f * cascade_factor;
+        float brightness = 0.60f + 0.40f * cascade_factor;
         
         uint8_t r, g, b;
         ws_palette_sample_rgb8(pal, x, &r, &g, &b);
         
-        r = (uint8_t)(r * brightness);
-        g = (uint8_t)(g * brightness);
-        b = (uint8_t)(b * brightness);
+        uint8_t r_new = (uint8_t)(r * brightness);
+        uint8_t g_new = (uint8_t)(g * brightness);
+        uint8_t b_new = (uint8_t)(b * brightness);
+
+        uint32_t idx = (uint32_t)(first + i) * 3u;
+        uint8_t r_old = ws->rgb[idx + 0];
+        uint8_t g_old = ws->rgb[idx + 1];
+        uint8_t b_old = ws->rgb[idx + 2];
+
+        r_new = (uint8_t)(r_old * temporal_smooth + r_new * inv_t + 0.5f);
+        g_new = (uint8_t)(g_old * temporal_smooth + g_new * inv_t + 0.5f);
+        b_new = (uint8_t)(b_old * temporal_smooth + b_new * inv_t + 0.5f);
         
-        set_rgb(ws, first + i, r, g, b);
+        set_rgb(ws, first + i, r_new, g_new, b_new);
     }
 }
 
@@ -525,13 +596,13 @@ static void fx_sparkle(ws2812_t *ws,
     uint32_t phase = (uint32_t)(st->t * 10.0f);
     
     /* Частота появления искр (0.0 - 1.0) */
-    float sparkle_density = 0.08f;
+    float sparkle_density = 0.05f;
     
     /* Длительность вспышки */
-    float sparkle_duration = 0.15f;
+    float sparkle_duration = 0.18f;
 
     for (uint16_t i = 0; i < count; ++i) {
-        float x = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
+        float x = fx_pos_norm(i, count);
         
         /* Базовый цвет из палитры */
         uint8_t r, g, b;
@@ -558,11 +629,11 @@ static void fx_sparkle(ws2812_t *ws,
         }
         
         /* Базовая яркость + искра */
-        float brightness = 0.6f + 0.4f * sparkle_boost;
+        float brightness = 0.68f + 0.32f * sparkle_boost;
         
         /* Для искр также слегка сдвигаем к белому */
         if (sparkle_boost > 0.1f) {
-            float white_mix = sparkle_boost * 0.3f;
+            float white_mix = sparkle_boost * 0.25f;
             r = (uint8_t)(r + (255 - r) * white_mix);
             g = (uint8_t)(g + (255 - g) * white_mix);
             b = (uint8_t)(b + (255 - b) * white_mix);
@@ -598,14 +669,14 @@ static void fx_breathe_wave(ws2812_t *ws,
     float wave_center = st->t - floorf(st->t);
     
     /* Ширина волны дыхания */
-    float wave_width = 0.4f;
+    float wave_width = 0.45f;
     
     /* Амплитуда дыхания (минимум - максимум яркости) */
-    float min_brightness = 0.35f;
+    float min_brightness = 0.62f;
     float max_brightness = 1.0f;
 
     for (uint16_t i = 0; i < count; ++i) {
-        float x = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
+        float x = fx_pos_norm(i, count);
         
         /* Расстояние до центра волны (с wrap-around) */
         float dist = fabsf(x - wave_center);
@@ -657,13 +728,17 @@ static void fx_color_morph(ws2812_t *ws,
     /* Применяем smoothstep для плавного перехода между зонами */
     float zone_blend = sinf(morph_phase * 2.0f * (float)M_PI) * 0.5f + 0.5f;
     zone_blend = smoothstep(zone_blend);
+
+    /* Лёгкое дыхание всей сцены, чтобы убрать статичность */
+    float breath_phase = 0.5f + 0.5f * sinf(st->t * 2.0f * (float)M_PI * 0.12f);
+    float breathing = 0.85f + 0.15f * smoothstep(breath_phase);
     
     /* Две "зоны" палитры для морфинга */
     float zone1_center = 0.25f;
     float zone2_center = 0.75f;
     
     for (uint16_t i = 0; i < count; ++i) {
-        float x = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
+        float x = fx_pos_norm(i, count);
         
         /* Позиция в палитре для каждой зоны */
         float u1 = zone1_center + (x - 0.5f) * 0.4f;  /* Зона 1 */
@@ -689,6 +764,10 @@ static void fx_color_morph(ws2812_t *ws,
         uint8_t g = (uint8_t)(g1 * inv_blend + g2 * local_blend);
         uint8_t b = (uint8_t)(b1 * inv_blend + b2 * local_blend);
         
+        r = (uint8_t)(r * breathing);
+        g = (uint8_t)(g * breathing);
+        b = (uint8_t)(b * breathing);
+
         set_rgb(ws, first + i, r, g, b);
     }
 }
@@ -710,7 +789,7 @@ static void fx_welcome_sweep(ws2812_t *ws,
         float pos = (float)i;
         float d   = head - pos;
         float w   = clamp01f(1.0f - fabsf(d) / width);
-        float u   = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
+        float u   = fx_pos_norm(i, count);
         uint8_t r,g,b;
         ws_palette_sample_rgb8(pal, u, &r, &g, &b);
         float k = 0.15f + 0.85f * w;
@@ -724,6 +803,7 @@ static void fx_welcome_sweep(ws2812_t *ws,
 static void fx_welcome_zone(ws2812_t *ws,
                             const ws_palette_t *pal,
                             float t_norm,
+                            float base_br,
                             uint16_t first,
                             uint16_t count)
 {
@@ -805,6 +885,12 @@ static void fx_welcome_zone(ws2812_t *ws,
         /* --- Pulse --- */
         br *= pulse;
 
+        /* Дополнительно опускаем финал интро, чтобы ближе к сцене по яркости */
+        br *= FX_WELCOME_FINAL_SCALE;
+
+        /* Жёстко ограничиваем финальную яркость интро тем же base_br,
+         * чтобы избежать выброса и скачка при переходе к сцене. */
+        if (br > base_br) br = base_br;
         if (br > 1.0f) br = 1.0f;
 
         ws_set_pixel_rgb(ws, first + i,
@@ -882,7 +968,7 @@ static void fx_goodbye_fade(ws2812_t *ws,
     float br = base_br * k;
 
     for (uint16_t i = 0; i < count; ++i) {
-        float u = (count == 1) ? 0.5f : (float)i / (float)(count - 1);
+        float u = fx_pos_norm(i, count);
         uint8_t r,g,b;
         ws_palette_sample_rgb8(pal, u, &r, &g, &b);
         r = (uint8_t)(r * br);
@@ -930,15 +1016,15 @@ uint8_t ws_oneshot_tick(ws2812_t *ws, oneshot_t *os)
 
     switch (os->fx_id) {
     case FX_WELCOME_SWEEP:
-    case FX_MB_WELCOME:
+    case FX_WELCOME_LUXE:
         fx_welcome_sweep(ws, os->pal, t, os->first, os->count);
         break;
     case FX_GOODBYE_FADE:
-    case FX_MB_GOODBYE:
+    case FX_GOODBYE_LUXE:
         fx_goodbye_fade(ws, os->pal, os->base_br, t, os->first, os->count);
         break;
     case FX_WELCOME:
-        fx_welcome_zone(ws, os->pal, t, os->first, os->count);
+        fx_welcome_zone(ws, os->pal, t, os->base_br, os->first, os->count);
         break;
     case FX_GOODBYE:
         fx_goodbye_zone(ws, os->pal, t, os->first, os->count);
@@ -984,20 +1070,20 @@ void ws_fx_apply(ws2812_t           *ws,
         break;
 
     /* Mercedes-inspired effects */
-    case FX_MB_OCEAN_FLOW:
-        fx_mb_ocean_flow(ws, pal, st, delta_ms, first, count);
+    case FX_OCEAN_FLOW:
+        fx_ocean_flow(ws, pal, st, delta_ms, first, count);
         break;
-    case FX_MB_TWO_TONE_WAVE:
-        fx_mb_two_tone_wave(ws, pal, st, delta_ms, first, count);
+    case FX_TWO_TONE_WAVE:
+        fx_two_tone_wave(ws, pal, st, delta_ms, first, count);
         break;
-    case FX_MB_ENERGIZE_PULSE:
-        fx_mb_energize_pulse(ws, pal, st, delta_ms, first, count);
+    case FX_ENERGIZE_PULSE:
+        fx_energize_pulse(ws, pal, st, delta_ms, first, count);
         break;
-    case FX_MB_VELVET_FLOW:
-        fx_mb_velvet_flow(ws, pal, st, delta_ms, first, count);
+    case FX_VELVET_FLOW:
+        fx_velvet_flow(ws, pal, st, delta_ms, first, count);
         break;
-    case FX_MB_GENTLE_PULSE:
-        fx_mb_gentle_pulse(ws, pal, st, delta_ms, first, count);
+    case FX_GENTLE_PULSE:
+        fx_gentle_pulse(ws, pal, st, delta_ms, first, count);
         break;
 
     /* W223/EQS Premium effects */

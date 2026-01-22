@@ -45,12 +45,12 @@ typedef enum {
     FX_DUAL_ZONE,
     FX_TWIN_WAVE,
 
-    /* Mercedes-inspired continuous effects */
-    FX_MB_OCEAN_FLOW,
-    FX_MB_TWO_TONE_WAVE,
-    FX_MB_ENERGIZE_PULSE,
-    FX_MB_VELVET_FLOW,        /* бархатный поток - премиальная плавность */
-    FX_MB_GENTLE_PULSE,       /* мягкий пульс - элегантная пульсация */
+    /* Premium continuous effects */
+    FX_OCEAN_FLOW,
+    FX_TWO_TONE_WAVE,
+    FX_ENERGIZE_PULSE,
+    FX_VELVET_FLOW,        /* бархатный поток - премиальная плавность */
+    FX_GENTLE_PULSE,       /* мягкий пульс - элегантная пульсация */
 
     /* W223/EQS Premium effects */
     FX_AURORA,                /* северное сияние - несколько синусоид с разными фазами */
@@ -62,30 +62,13 @@ typedef enum {
     /* One-shot effects */
     FX_WELCOME_SWEEP,
     FX_GOODBYE_FADE,
-    FX_MB_WELCOME,
-    FX_MB_GOODBYE,
+    FX_WELCOME_LUXE,
+    FX_GOODBYE_LUXE,
     FX_WELCOME,
     FX_GOODBYE,
 
     FX_MAX_
 } fx_id_t;
-
-/* Mercedes-style aliases */
-#define FX_MB_SOFT_SOLID      FX_SOLID_GRADIENT
-#define FX_MB_FLOW_SOFT       FX_GRADIENT_FLOW
-#define FX_MB_FLOW_DEEP       FX_MB_OCEAN_FLOW
-#define FX_MB_DUO_FLOW        FX_DUAL_ZONE
-#define FX_MB_SOFT_BREATHE    FX_SOFT_BREATHE
-#define FX_MB_ENERGIZE        FX_MB_ENERGIZE_PULSE
-#define FX_MB_VELVET          FX_MB_VELVET_FLOW
-#define FX_MB_GENTLE          FX_MB_GENTLE_PULSE
-
-/* W223/EQS Premium aliases */
-#define FX_MB_AURORA          FX_AURORA
-#define FX_MB_CASCADE         FX_CASCADE
-#define FX_MB_SPARKLE         FX_SPARKLE
-#define FX_MB_BREATHE_WAVE    FX_BREATHE_WAVE
-#define FX_MB_COLOR_MORPH     FX_COLOR_MORPH
 
 /* FX state */
 typedef struct {

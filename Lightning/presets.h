@@ -60,38 +60,22 @@ typedef struct {
 
 typedef enum {
     /* AMBER BANK */
-    THEME_AMBER_WARM_LOUNGE = 0,    /* мягкий янтарный "лаунж" */
-    THEME_AMBER_SUNSET_FLOW,        /* плавный янтарный градиент */
-    THEME_AMBER_SOFT_PULSE,         /* мягкий пульс */
-    THEME_AMBER_DUO_WAVE,           /* двухтонная волна */
+    THEME_AMBER_CHAMPAGNE_ARC = 0,
+    THEME_AMBER_SUNSET,
+    THEME_AMBER_COPPER_ROSE,
+    THEME_AMBER_BURGUNDY_VELVET,
 
     /* BLUE BANK */
-    THEME_BLUE_COOL_LOUNGE,         /* мягкий синий "лаунж" */
-    THEME_BLUE_OCEAN_FLOW,          /* холодный ocean flow */
-    THEME_BLUE_GLACIER,             /* ледяной голубой */
-    THEME_BLUE_SKY_NIGHT,           /* сине-фиолетовый sky/night */
+    THEME_BLUE_AURORA_GLACIER,
+    THEME_BLUE_SAPPHIRE_ICE,
+    THEME_BLUE_NIGHT_OPAL,
+    THEME_BLUE_EMERALD_STREAM,
 
     /* WHITE BANK */
-    THEME_WHITE_POLAR_BREATHE,      /* белый breathe */
-    THEME_WHITE_ICE,                /* холодный лёд */
-    THEME_WHITE_SATIN,              /* мягкий сатиновый белый */
-    THEME_WHITE_CRYSTAL_WAVE,       /* кристальная волна */
-
-	THEME_NIGHT_CRUISE,
-	THEME_HYACINTH_DREAM,
-	THEME_COPPER_LOUNGE,
-	THEME_ROSE_SUITE,
-
-	THEME_INDIGO_SKY,
-	THEME_ICE_CRYSTAL,
-	THEME_RED_MOON_PREMIUM,
-
-	/* PREMIUM BANK */
-	THEME_DIAMOND_PREMIUM,      /* бриллиантово-белый с бархатным потоком */
-	THEME_SILVER_LOUNGE,        /* серебряный лаунж с мягким пульсом */
-	THEME_PLATINUM_ELEGANCE,    /* платиновая элегантность с бархатным потоком */
-	THEME_AMBER_GOLD_LUXURY,    /* янтарное золото люкс с мягким пульсом */
-	THEME_ROYAL_MAGENTA,        /* королевский пурпур с бархатным потоком */
+    THEME_WHITE_PLATINUM_CLOUD,
+    THEME_WHITE_SILVER_SILK,
+    THEME_WHITE_PEARL_BLUSH,
+    THEME_WHITE_GLACIER_MIST,
 
     THEME_MAX_
 } ws_theme_enum_t;

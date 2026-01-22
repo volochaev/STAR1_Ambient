@@ -45,6 +45,7 @@ extern const zone_map_t g_zone_map[WS_ZONE_MAX];
 void zones_apply_scene(const scene_player_t *pl);
 void zones_apply_intro(const scene_player_t *pl, float t_norm);
 void zones_apply_outro(const scene_player_t *pl, float t_norm);
+void zones_apply_bridge(const scene_player_t *pl, float t_norm);
 
 #ifdef __cplusplus
 }

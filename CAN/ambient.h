@@ -10,16 +10,12 @@
  * @section Protocol Overview
  * The system uses two CAN IDs:
  * - 0x325: OEM packets from vehicle IC (brightness, color)
- * - 0x353: Unified Master Protocol (discovery, sync, master, extended packets)
+ * - 0x353: Unified Master Protocol (discovery, master, sync packets)
  *
  * @section Master/Slave Architecture
  * One board acts as master (automatically determined by priority), others as slaves.
  * Master reads OEM CAN packets and broadcasts state to all slaves.
  * Automatic failover if master fails.
- *
- * @section Extended Mode
- * Extended mode allows manual theme selection via bank_id and theme_index.
- * Toggled by 5 color changes within 3 seconds.
  *
  * @note    All boards use the same firmware. Board type is determined via BOARD_TYPE.
  *
@@ -44,9 +40,6 @@ extern "C" {
 /* OEM CAN ID (IC → ambient) */
 #define CAN_OEM_ID       0x325U
 
-/* Extended ambient control - объединен с CAN_MASTER_ID */
-#define CAN_EXT_ID       0x353U  /* тот же ID, различается по типу пакета */
-
 /* Master broadcast ID (master → slaves) */
 /* Также используется для discovery, sync и ext пакетов (различаются по типу в data[0]) */
 #define CAN_MASTER_ID    0x353U
@@ -57,16 +50,14 @@ extern "C" {
 /* Sync packet ID (heartbeat от master) - объединен с CAN_MASTER_ID */
 #define CAN_SYNC_ID      0x353U  /* тот же ID, различается по типу пакета */
 
-/* Extended flags */
-#define EXT_FLAG_EXTENDED   0x01
-#define EXT_FLAG_NIGHT      0x02
-
 /* Packet type markers для CAN_MASTER_ID (0x353) */
 #define PKT_TYPE_DISCOVERY  0x00  /* Discovery: data[0] = board_type (0-5) */
 #define PKT_TYPE_MASTER     0x10  /* Master: data[0] = 0x10 | flags, data[1-4] = state */
 #define PKT_TYPE_SYNC       0x20  /* Sync: data[0] = 0x20 | bank_id, data[1] = theme_index */
-#define PKT_TYPE_EXT        0x30  /* Extended: data[0] = 0x30 | flags, data[1] = bank_id, data[2] = theme_index */
 #define PKT_TYPE_MASK       0xF0  /* Маска для типа пакета (старшие 4 бита) */
+
+/* Master flags (PKT_TYPE_MASTER) */
+#define MASTER_FLAG_NIGHT   0x00
 
 /* Board types для discovery */
 #define BOARD_TYPE_FL        0   /* Front-Left door */
@@ -90,8 +81,6 @@ extern "C" {
 
 /* Timeouts для failover */
 #define MASTER_HEARTBEAT_TIMEOUT_MS  1000u  /* если master не отвечает 1 сек */
-#define DISCOVERY_INTERVAL_MS         1000u  /* discovery пакет каждую секунду */
-#define SYNC_INTERVAL_MS              250u   /* sync пакет каждые 250мс */
 
 /**
  * @brief CAN ambient lighting state structure
@@ -102,12 +91,11 @@ typedef struct {
     uint8_t oem_color;       /**< OEM color: 0=Amber, 1=Blue, 2=White */
     float   oem_brightness;  /**< OEM brightness: 0.0..1.0 */
 
-    uint8_t extended_mode;   /**< Extended mode: 0=OEM only, 1=full theme control */
     uint8_t night_mode;      /**< Night mode: 0=off, 1=on */
 
-    uint8_t bank_id;         /**< Bank ID: 0=auto from OEM, 1=Amber, 2=Blue, 3=White */
+    uint8_t bank_id;         /**< Bank ID used for sync (0..2 = OEM color) */
     uint8_t theme_index;     /**< Theme index inside bank */
-    
+
     /* Cyclic theme rotation per OEM bank */
     uint8_t last_oem_color;        /**< Last OEM color for detecting bank change */
     uint8_t oem_theme_indices[3];  /**< Cyclic theme index for each OEM bank */
@@ -159,12 +147,6 @@ void can_ambient_send_sync_packet(void);
  * @brief Send extended sync packet (master only)
  * @details Syncs extended mode state. Sent every 250ms when extended mode enabled.
  */
-void can_ambient_send_ext_packet(void);
-
-/**
- * @brief Send discovery packet (all boards)
- * @details Announces board presence and role. Sent every 1000ms by all boards.
- */
 void can_ambient_send_discovery_packet(void);
 
 /**
@@ -191,7 +173,8 @@ void can_ambient_reset_oem_received(void);
  * @brief Update master/slave role (periodic call from main loop)
  * @param now_ms Current time in milliseconds
  * @details Handles discovery, failover, and automatic role assignment.
- *          Saves settings to flash if changed.
+ *          Saves settings to flash if changed. Передавайте вызовы после
+ *          получения первого OEM пакета, чтобы не будить шину раньше времени.
  */
 void can_ambient_update_role(uint32_t now_ms);
 
