@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-/* 
+/*
  * ВАЖНО: Включите нужный board файл для вашей платы!
  * Раскомментируйте одну из строк ниже в зависимости от типа платы:
  */
@@ -225,16 +225,16 @@ static void demo_mode_update(uint32_t now_ms)
 {
 #if DEMO_MODE
     uint8_t is_master = can_ambient_is_master();
-    
+
     // Если плата только что стала master, сбрасываем таймер переключения
     if (is_master && !g_was_master) {
         g_last_theme_switch_ms = now_ms;
         g_was_master = 1;
         return;  // Не переключаем тему сразу после становления master
     }
-    
+
     g_was_master = is_master;
-    
+
     if (!is_master) {
         return;  // Демо режим работает только на master
     }
@@ -249,13 +249,13 @@ static void demo_mode_update(uint32_t now_ms)
             __disable_irq();
             oem_color_id_t oem_col = (oem_color_id_t)g_amb_can.oem_color;
             __enable_irq();
-            
+
             // Обновляем g_oem_color только если пришло реальное значение через CAN (не 0 = дефолтное)
             // Это предотвращает переключение на AMBER при старте, если g_oem_color был инициализирован как BLUE
             if (oem_col != 0 && oem_col != g_oem_color) {
                 g_oem_color = oem_col;
             }
-            
+
             const ws_theme_bank_t *bank = ws_theme_get_bank(g_oem_color);
             if (bank) {
                 ws_theme_id_t next = ws_theme_bank_next(bank, g_current_theme);
@@ -350,12 +350,12 @@ int main(void)
     /* USER CODE BEGIN 3 */
 		uint32_t now = HAL_GetTick();
 		uint32_t dt = now - g_last_tick_ms;
-		
+
 		// Защита от переполнения dt (если система была в sleep или произошел сбой)
 		if (dt > 1000u) {
 			dt = 16u;  // Максимальный разумный dt для анимаций (~60 FPS)
 		}
-		
+
 		g_last_tick_ms = now;
 
 		ws2812_t *main_strip = get_main_strip();
@@ -383,7 +383,7 @@ int main(void)
 				__enable_irq();
 
 				g_oem_color = oem_col;
-				
+
 				// Выбираем тему на основе OEM цвета и сохранённого индекса
 				const ws_theme_bank_t *bank = ws_theme_get_bank(oem_col);
 				if (bank && bank->count > 0) {
@@ -397,12 +397,12 @@ int main(void)
 
 				// Инициализируем плеер с выбранной темой
 				player_init(&g_player, g_current_theme);
-				
+
 				// Запускаем intro
 				if (main_strip) {
 					player_start_intro(main_strip, &g_player);
 				}
-				
+
 				g_waiting_for_can = 0;
 			} else {
 				// Ещё не получили OEM пакет - ждём
@@ -480,7 +480,7 @@ int main(void)
 					if (outro_dt > 100u) outro_dt = 16u;
 					g_last_tick_ms = outro_now;
 					player_tick(main_strip, &g_player, outro_dt);
-					
+
 					// Вычисляем прогресс outro для зон
 					uint32_t outro_elapsed = outro_now - g_player.outro.start_ms;
 					uint32_t outro_duration = g_player.outro.duration_ms ? g_player.outro.duration_ms : 1u;
@@ -507,12 +507,12 @@ int main(void)
 					/* Enter STOP mode (wakeup via EXTI from CAN RX) */
 					HAL_SuspendTick();
 					HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
-					HAL_ResumeTick();
 
 					/* Woke up - restore operation */
 					SystemClock_Config();  /* Restore clock after STOP */
+					HAL_ResumeTick();
 					restore_can_rx_af();   /* Restore AF for FDCAN */
-					
+
 					can_ambient_exit_sleep();
 
 					// Ждём первый CAN пакет заново
@@ -651,9 +651,9 @@ int main(void)
 		if (dt == 0u) {
 			__WFI();
 		}
-    
+
 		HAL_Delay(1);
-		
+
 #if AMB_ENABLE_WATCHDOG
 		/* Feed watchdog to prevent reset */
 		HAL_IWDG_Refresh(&hiwdg);
@@ -905,7 +905,17 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, CH1_EN_Pin|CH2_EN_Pin|CH3_EN_Pin|CH4_EN_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, LED_PWR_EN_Pin|LED_DATA_OE_Pin|FDCAN1_STBY_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : CH1_EN_Pin CH2_EN_Pin CH3_EN_Pin CH4_EN_Pin */
+  GPIO_InitStruct.Pin = CH1_EN_Pin|CH2_EN_Pin|CH3_EN_Pin|CH4_EN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : LED_PWR_EN_Pin LED_DATA_OE_Pin FDCAN1_STBY_Pin */
   GPIO_InitStruct.Pin = LED_PWR_EN_Pin|LED_DATA_OE_Pin|FDCAN1_STBY_Pin;
@@ -921,6 +931,41 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(FDCAN1_WAKEUP_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
+#if defined(CH1_EN_Pin) && defined(CH1_EN_GPIO_Port)
+  HAL_GPIO_WritePin(CH1_EN_GPIO_Port, CH1_EN_Pin, GPIO_PIN_RESET);
+  GPIO_InitStruct.Pin = CH1_EN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(CH1_EN_GPIO_Port, &GPIO_InitStruct);
+#endif
+
+#if defined(CH2_EN_Pin) && defined(CH2_EN_GPIO_Port)
+  HAL_GPIO_WritePin(CH2_EN_GPIO_Port, CH2_EN_Pin, GPIO_PIN_RESET);
+  GPIO_InitStruct.Pin = CH2_EN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(CH2_EN_GPIO_Port, &GPIO_InitStruct);
+#endif
+
+#if defined(CH3_EN_Pin) && defined(CH3_EN_GPIO_Port)
+  HAL_GPIO_WritePin(CH3_EN_GPIO_Port, CH3_EN_Pin, GPIO_PIN_RESET);
+  GPIO_InitStruct.Pin = CH3_EN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(CH3_EN_GPIO_Port, &GPIO_InitStruct);
+#endif
+
+#if defined(CH4_EN_Pin) && defined(CH4_EN_GPIO_Port)
+  HAL_GPIO_WritePin(CH4_EN_GPIO_Port, CH4_EN_Pin, GPIO_PIN_RESET);
+  GPIO_InitStruct.Pin = CH4_EN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(CH4_EN_GPIO_Port, &GPIO_InitStruct);
+#endif
 
   /* USER CODE END MX_GPIO_Init_2 */
 }
@@ -994,7 +1039,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
     uint8_t max_messages = 10;  /* Лимит обработки за один вызов для защиты от бесконечного цикла */
 
     if ((RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) != 0) {
-        while (max_messages-- > 0 && 
+        while (max_messages-- > 0 &&
                HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &rx_header, rx_data) == HAL_OK) {
             uint8_t dlc = rx_header.DataLength;
             if (dlc <= 8) {  /* Валидация длины данных */

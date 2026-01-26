@@ -16,12 +16,24 @@
 #include <string.h>
 
 static uint8_t g_power_state = 0u;
+static uint8_t g_channel_mask = 0u;  /* Bitmask of channels that have power switches */
 
 static float clamp01f(float x)
 {
     if (x < 0.0f) return 0.0f;
     if (x > 1.0f) return 1.0f;
     return x;
+}
+
+static uint8_t channel_to_mask_bit(uint32_t tim_channel)
+{
+    switch (tim_channel) {
+    case TIM_CHANNEL_1: return WS_CH1;
+    case TIM_CHANNEL_2: return WS_CH2;
+    case TIM_CHANNEL_3: return WS_CH3;
+    case TIM_CHANNEL_4: return WS_CH4;
+    default:            return 0u;
+    }
 }
 
 static inline float ws_effective_brightness(const ws2812_t *ws)
@@ -61,6 +73,33 @@ static uint32_t channel_to_active_flag(uint32_t tim_channel)
     case TIM_CHANNEL_4: return HAL_TIM_ACTIVE_CHANNEL_4;
     default:            return 0;
     }
+}
+
+static void ws_apply_channel_power(uint8_t on)
+{
+#if defined(CH1_EN_Pin) && defined(CH1_EN_GPIO_Port)
+    HAL_GPIO_WritePin(CH1_EN_GPIO_Port,
+                      CH1_EN_Pin,
+                      (on && (g_channel_mask & WS_CH1)) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+#endif
+
+#if defined(CH2_EN_Pin) && defined(CH2_EN_GPIO_Port)
+    HAL_GPIO_WritePin(CH2_EN_GPIO_Port,
+                      CH2_EN_Pin,
+                      (on && (g_channel_mask & WS_CH2)) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+#endif
+
+#if defined(CH3_EN_Pin) && defined(CH3_EN_GPIO_Port)
+    HAL_GPIO_WritePin(CH3_EN_GPIO_Port,
+                      CH3_EN_Pin,
+                      (on && (g_channel_mask & WS_CH3)) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+#endif
+
+#if defined(CH4_EN_Pin) && defined(CH4_EN_GPIO_Port)
+    HAL_GPIO_WritePin(CH4_EN_GPIO_Port,
+                      CH4_EN_Pin,
+                      (on && (g_channel_mask & WS_CH4)) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+#endif
 }
 
 static void pack_into(ws2812_t *ws, uint32_t *dst)
@@ -156,6 +195,8 @@ void ws_init(ws2812_t        *ws,
     ws->dma_buf     = dma_buf;
     ws->dma_len     = (uint32_t)led_count * BYTES_PER_LED * 8u + WS_RESET_SLOTS;
 
+    g_channel_mask |= channel_to_mask_bit(tim_channel);
+
     memset(ws->rgb, 0, (size_t)led_count * BYTES_PER_LED);
 
     ws->global_brightness = 1.0f;
@@ -217,20 +258,45 @@ void ws_power_set(uint8_t on)
 {
     g_power_state = on ? 1u : 0u;
 
+    if (g_power_state) {
 #ifdef LED_PWR_EN_Pin
-    HAL_GPIO_WritePin(LED_PWR_EN_GPIO_Port,
-                      LED_PWR_EN_Pin,
-                      on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(LED_PWR_EN_GPIO_Port,
+                          LED_PWR_EN_Pin,
+                          GPIO_PIN_SET);
 #endif
-
+        ws_apply_channel_power(1u);
 #ifdef LED_DATA_OE_Pin
-    HAL_GPIO_WritePin(LED_DATA_OE_GPIO_Port,
-                      LED_DATA_OE_Pin,
-                      on ? GPIO_PIN_RESET : GPIO_PIN_SET);
+        HAL_GPIO_WritePin(LED_DATA_OE_GPIO_Port,
+                          LED_DATA_OE_Pin,
+                          GPIO_PIN_RESET);
 #endif
+    } else {
+#ifdef LED_DATA_OE_Pin
+        HAL_GPIO_WritePin(LED_DATA_OE_GPIO_Port,
+                          LED_DATA_OE_Pin,
+                          GPIO_PIN_SET);
+#endif
+        ws_apply_channel_power(0u);
+#ifdef LED_PWR_EN_Pin
+        HAL_GPIO_WritePin(LED_PWR_EN_GPIO_Port,
+                          LED_PWR_EN_Pin,
+                          GPIO_PIN_RESET);
+#endif
+    }
 }
 
 uint8_t ws_is_power_on(void)
 {
     return g_power_state;
+}
+
+void ws_power_set_channel_mask(uint8_t mask)
+{
+    g_channel_mask = mask & WS_CH_ALL;
+    ws_apply_channel_power(g_power_state);
+}
+
+uint8_t ws_power_get_channel_mask(void)
+{
+    return g_channel_mask;
 }

@@ -69,6 +69,15 @@ typedef struct {
 
 typedef ws2812_t led_zone_t;
 
+/* === POWER CONTROL ======================================================= */
+/* Global buck enable is driven by LED_PWR_EN.
+ * Optional per-channel switches (CH1_EN..CH4_EN) can be toggled via mask. */
+#define WS_CH1   (1u << 0)
+#define WS_CH2   (1u << 1)
+#define WS_CH3   (1u << 2)
+#define WS_CH4   (1u << 3)
+#define WS_CH_ALL (WS_CH1 | WS_CH2 | WS_CH3 | WS_CH4)
+
 void ws_init(ws2812_t        *ws,
              TIM_HandleTypeDef *htim,
              uint32_t         tim_channel,
@@ -84,6 +93,8 @@ void ws_dma_tc_isr(ws2812_t *ws, TIM_HandleTypeDef *htim);
 
 void ws_power_set(uint8_t on);
 uint8_t ws_is_power_on(void);
+void ws_power_set_channel_mask(uint8_t mask);
+uint8_t ws_power_get_channel_mask(void);
 
 static inline void led_zone_init(led_zone_t       *z,
                                  TIM_HandleTypeDef *htim,

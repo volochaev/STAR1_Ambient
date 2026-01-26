@@ -59,10 +59,26 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define CH1_DATA_Pin GPIO_PIN_0
+#define CH1_DATA_GPIO_Port GPIOA
+#define CH2_DATA_Pin GPIO_PIN_1
+#define CH2_DATA_GPIO_Port GPIOA
+#define CH3_DATA_Pin GPIO_PIN_2
+#define CH3_DATA_GPIO_Port GPIOA
+#define CH4_DATA_Pin GPIO_PIN_3
+#define CH4_DATA_GPIO_Port GPIOA
+#define CH1_EN_Pin GPIO_PIN_6
+#define CH1_EN_GPIO_Port GPIOA
+#define CH2_EN_Pin GPIO_PIN_7
+#define CH2_EN_GPIO_Port GPIOA
 #define LED_PWR_EN_Pin GPIO_PIN_1
 #define LED_PWR_EN_GPIO_Port GPIOB
 #define LED_DATA_OE_Pin GPIO_PIN_2
 #define LED_DATA_OE_GPIO_Port GPIOB
+#define CH3_EN_Pin GPIO_PIN_8
+#define CH3_EN_GPIO_Port GPIOA
+#define CH4_EN_Pin GPIO_PIN_9
+#define CH4_EN_GPIO_Port GPIOA
 #define FDCAN1_STBY_Pin GPIO_PIN_6
 #define FDCAN1_STBY_GPIO_Port GPIOB
 #define FDCAN1_WAKEUP_Pin GPIO_PIN_7
