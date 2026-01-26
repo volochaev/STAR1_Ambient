@@ -908,7 +908,10 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOA, CH1_EN_Pin|CH2_EN_Pin|CH3_EN_Pin|CH4_EN_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, LED_PWR_EN_Pin|LED_DATA_OE_Pin|FDCAN1_STBY_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LED_PWR_EN_GPIO_Port, LED_PWR_EN_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, LED_DATA_OE_Pin|FDCAN1_STBY_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pins : CH1_EN_Pin CH2_EN_Pin CH3_EN_Pin CH4_EN_Pin */
   GPIO_InitStruct.Pin = CH1_EN_Pin|CH2_EN_Pin|CH3_EN_Pin|CH4_EN_Pin;
