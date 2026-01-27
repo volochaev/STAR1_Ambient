@@ -79,6 +79,8 @@ void Error_Handler(void);
 #define CH3_EN_GPIO_Port GPIOA
 #define CH4_EN_Pin GPIO_PIN_9
 #define CH4_EN_GPIO_Port GPIOA
+#define LED_HANDLE_PWM_Pin GPIO_PIN_4
+#define LED_HANDLE_PWM_GPIO_Port GPIOB
 #define FDCAN1_STBY_Pin GPIO_PIN_6
 #define FDCAN1_STBY_GPIO_Port GPIOB
 #define FDCAN1_WAKEUP_Pin GPIO_PIN_7
