@@ -307,9 +307,7 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_FDCAN1_Init();
-#if AMB_ENABLE_WATCHDOG
   MX_IWDG_Init();
-#endif
   MX_TIM2_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
@@ -687,7 +685,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV2;
-  RCC_OscInitStruct.PLL.PLLN = 80;
+  RCC_OscInitStruct.PLL.PLLN = 40;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV4;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
@@ -759,7 +757,6 @@ static void MX_FDCAN1_Init(void)
   * @param None
   * @retval None
   */
-#if AMB_ENABLE_WATCHDOG
 static void MX_IWDG_Init(void)
 {
 
@@ -773,11 +770,7 @@ static void MX_IWDG_Init(void)
   hiwdg.Instance = IWDG;
   hiwdg.Init.Prescaler = IWDG_PRESCALER_64;
   hiwdg.Init.Window = 4095;
-  /* LSI ~32kHz, prescaler 64 -> 500 Hz -> 2 ms per tick */
-  hiwdg.Init.Reload = (AMB_WATCHDOG_TIMEOUT_MS * 500u) / 1000u;
-  if (hiwdg.Init.Reload > 4095u) {
-      hiwdg.Init.Reload = 4095u;  /* Max value */
-  }
+  hiwdg.Init.Reload = 4095;
   if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
   {
     Error_Handler();
@@ -786,12 +779,6 @@ static void MX_IWDG_Init(void)
   /* USER CODE END IWDG_Init 2 */
 
 }
-#else
-static void MX_IWDG_Init(void)
-{
-  /* Watchdog disabled at compile time */
-}
-#endif
 
 /**
   * @brief TIM2 Initialization Function
@@ -965,9 +952,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, CH1_EN_Pin|CH2_EN_Pin|CH3_EN_Pin|CH4_EN_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, CH1_EN_Pin|CH2_EN_Pin|CH4_EN_Pin|CH3_EN_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED_PWR_EN_GPIO_Port, LED_PWR_EN_Pin, GPIO_PIN_RESET);
@@ -975,8 +963,8 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, LED_DATA_OE_Pin|FDCAN1_STBY_Pin, GPIO_PIN_SET);
 
-  /*Configure GPIO pins : CH1_EN_Pin CH2_EN_Pin CH3_EN_Pin CH4_EN_Pin */
-  GPIO_InitStruct.Pin = CH1_EN_Pin|CH2_EN_Pin|CH3_EN_Pin|CH4_EN_Pin;
+  /*Configure GPIO pins : CH1_EN_Pin CH2_EN_Pin CH4_EN_Pin CH3_EN_Pin */
+  GPIO_InitStruct.Pin = CH1_EN_Pin|CH2_EN_Pin|CH4_EN_Pin|CH3_EN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
