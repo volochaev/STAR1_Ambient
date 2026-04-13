@@ -57,14 +57,14 @@ typedef struct {
  * @brief Загрузить настройки из Flash
  * @return 0 если успешно, -1 если данные невалидны или отсутствуют
  */
-int flash_storage_load(amb_can_state_t *state);
+int flash_storage_load(can_state_t *state);
 
 /**
  * @brief Сохранить настройки в Flash
  * @param state Указатель на структуру с настройками для сохранения
  * @return 0 если успешно, -1 при ошибке
  */
-int flash_storage_save(const amb_can_state_t *state);
+int flash_storage_save(const can_state_t *state);
 
 /**
  * @brief Стереть страницу Flash (для отладки/сброса)

@@ -9,6 +9,7 @@
 
 #include "ambient.h"        /* BOARD_TYPE_* definitions */
 #include "board_dashboard.h"
+#include "board_led_backend.h"
 #include "board_common.h"   /* Common macros with DMA alignment */
 
 /* TIM from CubeMX */
@@ -39,93 +40,34 @@ ws2812_t g_dashboard_center;
 ws2812_t g_dashboard_ac_vents;
 ws2812_t g_dashboard_footwell;
 
-/* === Маппинг логических зон → физические линии ======================= */
-/* zones.c опирается на g_zone_map[WS_ZONE_*] */
-/* Для dashboard используем: STRIP, HANDLE->CENTER, STORAGE->AC_VENTS, FOOTWELL */
-#if defined(BOARD_TYPE) && BOARD_TYPE == BOARD_TYPE_DASHBOARD
-
-__attribute__((weak)) const zone_map_t g_zone_map[WS_ZONE_MAX] = {
-    [WS_ZONE_STRIP] = {
-        .ws    = &g_dashboard_strip,
-        .first = 0,
-        .count = DASHBOARD_STRIP_LEDS,
-    },
-    [WS_ZONE_HANDLE] = {
-        .ws    = &g_dashboard_center,
-        .first = 0,
-        .count = DASHBOARD_CENTER_LEDS,
-    },
-    [WS_ZONE_STORAGE] = {
-        .ws    = &g_dashboard_ac_vents,
-        .first = 0,
-        .count = DASHBOARD_AC_VENTS_LEDS,
-    },
-    [WS_ZONE_FOOTWELL] = {
-        .ws    = &g_dashboard_footwell,
-        .first = 0,
-        .count = DASHBOARD_FOOTWELL_LEDS,
-    },
+static const board_led_line_t g_dashboard_lines[] = {
+    { &g_dashboard_strip, TIM_CHANNEL_1, dashboard_strip_fb, dashboard_strip_dma, DASHBOARD_STRIP_LEDS, 1u },
+    { &g_dashboard_center, TIM_CHANNEL_2, dashboard_center_fb, dashboard_center_dma, DASHBOARD_CENTER_LEDS, 1u },
+    { &g_dashboard_ac_vents, TIM_CHANNEL_3, dashboard_ac_vents_fb, dashboard_ac_vents_dma, DASHBOARD_AC_VENTS_LEDS, 1u },
+    { &g_dashboard_footwell, TIM_CHANNEL_4, dashboard_footwell_fb, dashboard_footwell_dma, DASHBOARD_FOOTWELL_LEDS, 1u },
 };
-#endif /* BOARD_TYPE == BOARD_TYPE_DASHBOARD */
 
 /* === Инициализация ==================================================== */
 
 void board_dashboard_led_init(void)
 {
-    /* TIM2 должен быть настроен в CubeMX:
-     * - PWM mode
-     * - период под 800 кГц биттайминга WS2812
-     * - включены каналы CH1..CH4 (где надо)
-     * - DMA для соответствующих каналов
-     */
-
-    /* Основная линия (STRIP) на TIM2_CH1 */
-    ws_init(&g_dashboard_strip,
-            &htim2,
-            TIM_CHANNEL_1,
-            dashboard_strip_fb,
-            dashboard_strip_dma,
-            DASHBOARD_STRIP_LEDS);
-
-    /* Центральная консоль (CENTER) на TIM2_CH2 */
-    ws_init(&g_dashboard_center,
-            &htim2,
-            TIM_CHANNEL_2,
-            dashboard_center_fb,
-            dashboard_center_dma,
-            DASHBOARD_CENTER_LEDS);
-
-    /* Дефлекторы кондиционера (AC_VENTS) на TIM2_CH3 */
-    ws_init(&g_dashboard_ac_vents,
-            &htim2,
-            TIM_CHANNEL_3,
-            dashboard_ac_vents_fb,
-            dashboard_ac_vents_dma,
-            DASHBOARD_AC_VENTS_LEDS);
-
-    /* Подсветка ног (FOOTWELL) на TIM2_CH4 */
-    ws_init(&g_dashboard_footwell,
-            &htim2,
-            TIM_CHANNEL_4,
-            dashboard_footwell_fb,
-            dashboard_footwell_dma,
-            DASHBOARD_FOOTWELL_LEDS);
-
-    /* Стартовое состояние: выкл, яркость 0 */
-    ws_power_set(0);
+    board_led_backend_init_lines(&htim2,
+                                 g_dashboard_lines,
+                                 (uint8_t)(sizeof(g_dashboard_lines) / sizeof(g_dashboard_lines[0])),
+                                 1u);
 }
 
 /* === Рендер всех линий борда ========================================= */
 
 void board_dashboard_led_render_all(void)
 {
-    /* Обычно свет рисует scene_player + zones.c,
-     * а тут мы просто отправляем содержимое всех ws->rgb в DMA.
-     */
+    board_led_backend_render_lines(g_dashboard_lines,
+                                   (uint8_t)(sizeof(g_dashboard_lines) / sizeof(g_dashboard_lines[0])));
+}
 
-	// Главную (g_dashboard_strip) рендерит только player_tick
-	// ws_render(&g_dashboard_strip);
-    ws_render(&g_dashboard_center);
-    ws_render(&g_dashboard_ac_vents);
-    ws_render(&g_dashboard_footwell);
+void board_dashboard_dma_tc(TIM_HandleTypeDef *htim)
+{
+    board_led_backend_dma_tc_lines(g_dashboard_lines,
+                                   (uint8_t)(sizeof(g_dashboard_lines) / sizeof(g_dashboard_lines[0])),
+                                   htim);
 }

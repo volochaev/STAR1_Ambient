@@ -5,7 +5,13 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
+../Core/Src/handle_pwm.c \
+../Core/Src/led_runtime.c \
 ../Core/Src/main.c \
+../Core/Src/runtime_can.c \
+../Core/Src/runtime_flow.c \
+../Core/Src/runtime_render.c \
+../Core/Src/runtime_stop.c \
 ../Core/Src/stm32g4xx_hal_msp.c \
 ../Core/Src/stm32g4xx_it.c \
 ../Core/Src/syscalls.c \
@@ -13,7 +19,13 @@ C_SRCS += \
 ../Core/Src/system_stm32g4xx.c 
 
 OBJS += \
+./Core/Src/handle_pwm.o \
+./Core/Src/led_runtime.o \
 ./Core/Src/main.o \
+./Core/Src/runtime_can.o \
+./Core/Src/runtime_flow.o \
+./Core/Src/runtime_render.o \
+./Core/Src/runtime_stop.o \
 ./Core/Src/stm32g4xx_hal_msp.o \
 ./Core/Src/stm32g4xx_it.o \
 ./Core/Src/syscalls.o \
@@ -21,7 +33,13 @@ OBJS += \
 ./Core/Src/system_stm32g4xx.o 
 
 C_DEPS += \
+./Core/Src/handle_pwm.d \
+./Core/Src/led_runtime.d \
 ./Core/Src/main.d \
+./Core/Src/runtime_can.d \
+./Core/Src/runtime_flow.d \
+./Core/Src/runtime_render.d \
+./Core/Src/runtime_stop.d \
 ./Core/Src/stm32g4xx_hal_msp.d \
 ./Core/Src/stm32g4xx_it.d \
 ./Core/Src/syscalls.d \
@@ -36,7 +54,7 @@ Core/Src/%.o Core/Src/%.su Core/Src/%.cyclo: ../Core/Src/%.c Core/Src/subdir.mk
 clean: clean-Core-2f-Src
 
 clean-Core-2f-Src:
-	-$(RM) ./Core/Src/main.cyclo ./Core/Src/main.d ./Core/Src/main.o ./Core/Src/main.su ./Core/Src/stm32g4xx_hal_msp.cyclo ./Core/Src/stm32g4xx_hal_msp.d ./Core/Src/stm32g4xx_hal_msp.o ./Core/Src/stm32g4xx_hal_msp.su ./Core/Src/stm32g4xx_it.cyclo ./Core/Src/stm32g4xx_it.d ./Core/Src/stm32g4xx_it.o ./Core/Src/stm32g4xx_it.su ./Core/Src/syscalls.cyclo ./Core/Src/syscalls.d ./Core/Src/syscalls.o ./Core/Src/syscalls.su ./Core/Src/sysmem.cyclo ./Core/Src/sysmem.d ./Core/Src/sysmem.o ./Core/Src/sysmem.su ./Core/Src/system_stm32g4xx.cyclo ./Core/Src/system_stm32g4xx.d ./Core/Src/system_stm32g4xx.o ./Core/Src/system_stm32g4xx.su
+	-$(RM) ./Core/Src/handle_pwm.cyclo ./Core/Src/handle_pwm.d ./Core/Src/handle_pwm.o ./Core/Src/handle_pwm.su ./Core/Src/led_runtime.cyclo ./Core/Src/led_runtime.d ./Core/Src/led_runtime.o ./Core/Src/led_runtime.su ./Core/Src/main.cyclo ./Core/Src/main.d ./Core/Src/main.o ./Core/Src/main.su ./Core/Src/runtime_can.cyclo ./Core/Src/runtime_can.d ./Core/Src/runtime_can.o ./Core/Src/runtime_can.su ./Core/Src/runtime_flow.cyclo ./Core/Src/runtime_flow.d ./Core/Src/runtime_flow.o ./Core/Src/runtime_flow.su ./Core/Src/runtime_render.cyclo ./Core/Src/runtime_render.d ./Core/Src/runtime_render.o ./Core/Src/runtime_render.su ./Core/Src/runtime_stop.cyclo ./Core/Src/runtime_stop.d ./Core/Src/runtime_stop.o ./Core/Src/runtime_stop.su ./Core/Src/stm32g4xx_hal_msp.cyclo ./Core/Src/stm32g4xx_hal_msp.d ./Core/Src/stm32g4xx_hal_msp.o ./Core/Src/stm32g4xx_hal_msp.su ./Core/Src/stm32g4xx_it.cyclo ./Core/Src/stm32g4xx_it.d ./Core/Src/stm32g4xx_it.o ./Core/Src/stm32g4xx_it.su ./Core/Src/syscalls.cyclo ./Core/Src/syscalls.d ./Core/Src/syscalls.o ./Core/Src/syscalls.su ./Core/Src/sysmem.cyclo ./Core/Src/sysmem.d ./Core/Src/sysmem.o ./Core/Src/sysmem.su ./Core/Src/system_stm32g4xx.cyclo ./Core/Src/system_stm32g4xx.d ./Core/Src/system_stm32g4xx.o ./Core/Src/system_stm32g4xx.su
 
 .PHONY: clean-Core-2f-Src
 

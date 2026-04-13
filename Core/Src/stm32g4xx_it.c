@@ -22,6 +22,10 @@
 #include "stm32g4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "features.h"
+#include "runtime_stop.h"
+#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+#endif
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -289,12 +293,39 @@ void FDCAN1_IT1_IRQHandler(void)
 /* USER CODE BEGIN 1 */
 
 /**
+  * @brief This function handles RTC wakeup interrupt through EXTI line 20.
+  */
+void RTC_WKUP_IRQHandler(void)
+{
+  if ((RTC->MISR & RTC_MISR_WUTMF) != 0u) {
+    RTC->SCR = RTC_SCR_CWUTF;
+  }
+  EXTI->PR1 = EXTI_PR1_PIF20;
+}
+
+/**
+  * @brief This function handles EXTI line[9:5] interrupts (for transceiver WAKE pin).
+  */
+void EXTI9_5_IRQHandler(void)
+{
+  if (__HAL_GPIO_EXTI_GET_IT(FDCAN1_WAKEUP_Pin) != RESET) {
+#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+    runtime_stop_signal_wakeup(2u);
+#endif
+    __HAL_GPIO_EXTI_CLEAR_IT(FDCAN1_WAKEUP_Pin);
+  }
+}
+
+/**
   * @brief This function handles EXTI line[15:10] interrupts (for CAN RX wakeup).
   */
 void EXTI15_10_IRQHandler(void)
 {
   /* Clear EXTI pending bit for PA11 (CAN RX) */
   if (__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_11) != RESET) {
+#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+    runtime_stop_signal_wakeup(1u);
+#endif
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_11);
     /* Wakeup from STOP mode - nothing else to do here,
      * main loop will handle the rest */

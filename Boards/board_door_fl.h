@@ -11,7 +11,7 @@
  * - Board type: BOARD_TYPE_FL (used for CAN discovery)
  *
  * @section Zone Mapping
- * Defines g_zone_map[] mapping logical zones (WS_ZONE_STRIP, WS_ZONE_HANDLE, etc.)
+ * Defines g_zone_map[] mapping logical zones (ZONE_STRIP, ZONE_HANDLE, etc.)
  * to physical LED strips for use by zones.c.
  *
  * @version 2.0
@@ -45,14 +45,12 @@ extern ws2812_t g_fl_handle;
 extern ws2812_t g_fl_storage;
 extern ws2812_t g_fl_footwell;
 
-/* Маппинг логических зон для zones.c */
-extern const zone_map_t g_zone_map[WS_ZONE_MAX];
-
 /* Инициализация железа ленты на этом борде (TIM, DMA, буферы) */
 void board_fl_led_init(void);
 
 /* Удобный хелпер: отрендерить все линии этого борда */
 void board_fl_led_render_all(void);
+void board_fl_dma_tc(TIM_HandleTypeDef *htim);
 
 #ifdef __cplusplus
 }

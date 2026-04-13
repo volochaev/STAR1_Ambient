@@ -28,10 +28,13 @@
 #define CAN_AMBIENT_H
 
 #include "main.h"
+#include "board_selected.h"
+#include "ambient_state.h"
 #include "types.h"
-#include "scene_player.h"
-#include "presets.h"
+#include "base_scene.h"
+#include "themes.h"
 #include "driver.h"
+#include "runtime_state.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,6 +42,18 @@ extern "C" {
 
 /* OEM CAN ID (IC → ambient) */
 #define CAN_OEM_ID       0x325U
+/* Light sensor state (SAM_F/LGTSENS) */
+#define CAN_LGTSENS_ID   0x025U
+/* HVAC temperature setpoint/status (front/rear) */
+#define CAN_HVAC_FRONT_ID 0x20BU
+#define CAN_HVAC_REAR_ID  0x0BCU
+/* HVAC fan current/status */
+#define CAN_HVAC_FAN_ID   0x339U
+/* Seat heating status */
+#define CAN_SEAT_FRONT_ID 0x369U
+#define CAN_SEAT_REAR_ID  0x350U
+/* BSM warning request from vehicle */
+#define CAN_BSM_ID       0x17EU
 
 /* Master broadcast ID (master → slaves) */
 /* Также используется для discovery, sync и ext пакетов (различаются по типу в data[0]) */
@@ -57,7 +72,7 @@ extern "C" {
 #define PKT_TYPE_MASK       0xF0  /* Маска для типа пакета (старшие 4 бита) */
 
 /* Master flags (PKT_TYPE_MASTER) */
-#define MASTER_FLAG_NIGHT   0x00
+#define MASTER_FLAG_NIGHT   0x01u
 
 /* Board types для discovery */
 #define BOARD_TYPE_FL        0   /* Front-Left door */
@@ -67,7 +82,7 @@ extern "C" {
 #define BOARD_TYPE_DASHBOARD 4   /* Dashboard/Instrument Panel */
 #define BOARD_TYPE_REAR      5   /* Rear ambient (задняя часть салона) */
 
-/* Board type - должен быть определен в board_xxx.h, иначе по умолчанию FL */
+/* Board type comes from board_selected.h (active board profile), fallback = FL */
 #ifndef BOARD_TYPE
 #define BOARD_TYPE  BOARD_TYPE_FL
 #endif
@@ -80,29 +95,34 @@ extern "C" {
 #endif
 
 /* Timeouts для failover */
-#define MASTER_HEARTBEAT_TIMEOUT_MS  1000u  /* если master не отвечает 1 сек */
+#define MASTER_HEARTBEAT_TIMEOUT_MS  1800u  /* failover timeout */
 
-/**
- * @brief CAN ambient lighting state structure
- * @details Stores current state of ambient lighting system including OEM color,
- *          brightness, extended mode, and theme selection.
- */
+typedef enum {
+    CAN_SLEEP_REASON_NONE = 0u,
+    CAN_SLEEP_REASON_IDLE_TIMEOUT = 1u,
+    CAN_SLEEP_REASON_API_ENTER = 2u,
+} can_sleep_reason_t;
+
+typedef enum {
+    CAN_WAKE_REASON_NONE = 0u,
+    CAN_WAKE_REASON_CAN_RX = 1u,
+    CAN_WAKE_REASON_STOP_EXTI_CAN_RX = 2u,
+    CAN_WAKE_REASON_STOP_EXTI_TRANSCEIVER = 3u,
+    CAN_WAKE_REASON_MANUAL_AWAKE = 4u,
+    CAN_WAKE_REASON_EXIT_SLEEP = 5u,
+} can_wake_reason_t;
+
 typedef struct {
-    uint8_t oem_color;       /**< OEM color: 0=Amber, 1=Blue, 2=White */
-    float   oem_brightness;  /**< OEM brightness: 0.0..1.0 */
-
-    uint8_t night_mode;      /**< Night mode: 0=off, 1=on */
-
-    uint8_t bank_id;         /**< Bank ID used for sync (0..2 = OEM color) */
-    uint8_t theme_index;     /**< Theme index inside bank */
-
-    /* Cyclic theme rotation per OEM bank */
-    uint8_t last_oem_color;        /**< Last OEM color for detecting bank change */
-    uint8_t oem_theme_indices[3];  /**< Cyclic theme index for each OEM bank */
-} amb_can_state_t;
-
-/** @brief Global CAN ambient state (volatile for thread-safety) */
-extern volatile amb_can_state_t g_amb_can;
+    uint32_t sleep_request_count;
+    uint32_t sleep_enter_count;
+    uint32_t wake_count;
+    can_sleep_reason_t last_sleep_reason;
+    can_wake_reason_t last_wake_reason;
+    uint32_t last_sleep_request_ms;
+    uint32_t last_sleep_enter_ms;
+    uint32_t last_wake_ms;
+    uint32_t last_idle_ms_at_request;
+} can_power_diag_t;
 
 /**
  * @brief Initialize CAN ambient system
@@ -118,18 +138,17 @@ void can_ambient_init(FDCAN_HandleTypeDef *hfdcan);
  * @param data Pointer to message data (max 8 bytes)
  * @param len Message data length
  * @details Must be called from HAL_FDCAN_RxFifo0Callback. Processes OEM, master,
- *          sync, extended, and discovery packets.
+ *          sync, and discovery packets.
  */
 void can_ambient_process_rx(uint32_t id, uint8_t *data, uint8_t len);
 
 /**
- * @brief Update scene player based on CAN state
- * @param ws Pointer to WS2812 strip (can be NULL)
- * @param pl Pointer to scene player
- * @details Called from main loop after player_tick. Updates theme, brightness,
- *          and triggers intro/outro transitions.
+ * @brief Build normalized runtime inputs for the director layer
+ * @param out Output snapshot for orchestration/render pipeline
+ * @details Copies the current CAN-derived state atomically and resolves
+ *          current theme/bank selection for the higher-level director.
  */
-void can_ambient_update(ws2812_t *ws, scene_player_t *pl);
+void can_ambient_fill_runtime_inputs(runtime_inputs_t *out);
 
 /**
  * @brief Send master packet (master only)
@@ -144,8 +163,8 @@ void can_ambient_send_master_packet(void);
 void can_ambient_send_sync_packet(void);
 
 /**
- * @brief Send extended sync packet (master only)
- * @details Syncs extended mode state. Sent every 250ms when extended mode enabled.
+ * @brief Send discovery packet (all boards)
+ * @details Periodic announce packet for board presence and role detection.
  */
 void can_ambient_send_discovery_packet(void);
 
@@ -168,6 +187,23 @@ uint8_t can_ambient_oem_received(void);
  * @details Used after waking from sleep to wait for new CAN data
  */
 void can_ambient_reset_oem_received(void);
+
+/**
+ * @brief Get Night Security Illumination request state from OEM CAN
+ * @return 1 if request is active, 0 otherwise
+ * @details Parsed from IC_A8 (0x325): SurrIll_Rq and NS_IllDur_Rq.
+ */
+uint8_t can_ambient_nsi_active(void);
+can_bsm_state_t can_ambient_get_bsm_state(void);
+motion_profile_t can_ambient_get_motion_profile(void);
+void can_ambient_set_motion_profile(motion_profile_t profile);
+int8_t can_ambient_consume_hvac_temp_trend(void);
+int8_t can_ambient_consume_hvac_temp_trend_for_board(void);
+float can_ambient_get_hvac_split_bias_for_board(void);
+float can_ambient_get_hvac_fan_level(void);
+uint8_t can_ambient_is_night_mode(void);
+float can_ambient_get_seat_heat_level_for_board(void);
+float can_ambient_get_bank_character_speed_scale(void);
 
 /**
  * @brief Update master/slave role (periodic call from main loop)
@@ -235,6 +271,23 @@ void can_ambient_enter_sleep(void);
  * @details Restarts CAN, turns on LED power
  */
 void can_ambient_exit_sleep(void);
+
+/**
+ * @brief Note wakeup source after STOP exit
+ * @param wake_src 1 = CAN RX EXTI (PA11), 2 = transceiver WAKE EXTI (PB7)
+ */
+void can_ambient_note_stop_wakeup(uint8_t wake_src);
+
+/**
+ * @brief Read power diagnostics snapshot
+ * @param out Destination struct (must be non-NULL)
+ */
+void can_ambient_get_power_diag(can_power_diag_t *out);
+
+/**
+ * @brief Reset power diagnostics counters/state
+ */
+void can_ambient_reset_power_diag(void);
 
 #endif /* AMB_ENABLE_SLEEP_MODE */
 

@@ -9,6 +9,7 @@
 
 #include "ambient.h"        /* BOARD_TYPE_* definitions */
 #include "board_door_rl.h"
+#include "board_led_backend.h"
 #include "board_common.h"   /* Common macros with DMA alignment */
 
 /* TIM from CubeMX */
@@ -39,92 +40,33 @@ ws2812_t g_rl_handle;
 ws2812_t g_rl_storage;
 ws2812_t g_rl_footwell;
 
-/* === Маппинг логических зон → физические линии ======================= */
-/* zones.c опирается на g_zone_map[WS_ZONE_*] */
-#if defined(BOARD_TYPE) && BOARD_TYPE == BOARD_TYPE_RL
-
-__attribute__((weak)) const zone_map_t g_zone_map[WS_ZONE_MAX] = {
-    [WS_ZONE_STRIP] = {
-        .ws    = &g_rl_strip,
-        .first = 0,
-        .count = RL_STRIP_LEDS,
-    },
-    [WS_ZONE_HANDLE] = {
-        .ws    = &g_rl_handle,
-        .first = 0,
-        .count = RL_HANDLE_LEDS,
-    },
-    [WS_ZONE_STORAGE] = {
-        .ws    = &g_rl_storage,
-        .first = 0,
-        .count = RL_STORAGE_LEDS,
-    },
-    [WS_ZONE_FOOTWELL] = {
-        .ws    = &g_rl_footwell,
-        .first = 0,
-        .count = RL_FOOTWELL_LEDS,
-    },
+static const board_led_line_t g_rl_lines[] = {
+    { &g_rl_strip, TIM_CHANNEL_1, rl_strip_fb, rl_strip_dma, RL_STRIP_LEDS, 1u },
+    { &g_rl_handle, TIM_CHANNEL_2, rl_handle_fb, rl_handle_dma, RL_HANDLE_LEDS, 1u },
+    { &g_rl_storage, TIM_CHANNEL_3, rl_storage_fb, rl_storage_dma, RL_STORAGE_LEDS, 1u },
+    { &g_rl_footwell, TIM_CHANNEL_4, rl_footwell_fb, rl_footwell_dma, RL_FOOTWELL_LEDS, 1u },
 };
-#endif /* BOARD_TYPE == BOARD_TYPE_RL */
 
 /* === Инициализация ==================================================== */
 
 void board_rl_led_init(void)
 {
-    /* TIM2 должен быть настроен в CubeMX:
-     * - PWM mode
-     * - период под 800 кГц биттайминга WS2812
-     * - включены каналы CH1..CH4 (где надо)
-     * - DMA для соответствующих каналов
-     */
-
-    /* Основная линия (STRIP) на TIM2_CH1 */
-    ws_init(&g_rl_strip,
-            &htim2,
-            TIM_CHANNEL_1,
-            rl_strip_fb,
-            rl_strip_dma,
-            RL_STRIP_LEDS);
-
-    /* Ручка (HANDLE) на TIM2_CH2 */
-    ws_init(&g_rl_handle,
-            &htim2,
-            TIM_CHANNEL_2,
-            rl_handle_fb,
-            rl_handle_dma,
-            RL_HANDLE_LEDS);
-
-    /* Ниша (STORAGE) на TIM2_CH3 */
-    ws_init(&g_rl_storage,
-            &htim2,
-            TIM_CHANNEL_3,
-            rl_storage_fb,
-            rl_storage_dma,
-            RL_STORAGE_LEDS);
-
-    /* Подсветка ног (FOOTWELL) на TIM2_CH4 */
-    ws_init(&g_rl_footwell,
-            &htim2,
-            TIM_CHANNEL_4,
-            rl_footwell_fb,
-            rl_footwell_dma,
-            RL_FOOTWELL_LEDS);
-
-    /* Стартовое состояние: выкл, яркость 0 */
-    ws_power_set(0);
+    board_led_backend_init_lines(&htim2,
+                                 g_rl_lines,
+                                 (uint8_t)(sizeof(g_rl_lines) / sizeof(g_rl_lines[0])),
+                                 1u);
 }
 
 /* === Рендер всех линий борда ========================================= */
 
 void board_rl_led_render_all(void)
 {
-    /* Обычно свет рисует scene_player + zones.c,
-     * а тут мы просто отправляем содержимое всех ws->rgb в DMA.
-     */
+    board_led_backend_render_lines(g_rl_lines, (uint8_t)(sizeof(g_rl_lines) / sizeof(g_rl_lines[0])));
+}
 
-	// Главную (g_rl_strip) рендерит только player_tick
-	// ws_render(&g_rl_strip);
-    ws_render(&g_rl_handle);
-    ws_render(&g_rl_storage);
-    ws_render(&g_rl_footwell);
+void board_rl_dma_tc(TIM_HandleTypeDef *htim)
+{
+    board_led_backend_dma_tc_lines(g_rl_lines,
+                                   (uint8_t)(sizeof(g_rl_lines) / sizeof(g_rl_lines[0])),
+                                   htim);
 }

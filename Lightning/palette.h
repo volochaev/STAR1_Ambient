@@ -7,7 +7,8 @@
  *          any position (0.0 to 1.0) to get RGB colors.
  *
  * @section Palette System
- * Palettes consist of color stops (ws_pal_stop_t) with position and RGB values.
+ * Palettes consist of color stops (palette_stop_t / ws_pal_stop_t) with
+ * position and RGB values.
  * Colors are interpolated between stops for smooth gradients.
  *
  * @section Available Palettes
@@ -58,6 +59,25 @@ typedef enum {
 const ws_palette_t* ws_palette_get(ws_palette_id_t id);
 void ws_palette_sample_rgb8(const ws_palette_t *pal, float u,
                             uint8_t *r, uint8_t *g, uint8_t *b);
+
+/* Neutral aliases for non-driver layers */
+typedef ws_pal_stop_t palette_stop_t;
+typedef ws_palette_t palette_t;
+typedef ws_palette_id_t palette_id_t;
+
+static inline const palette_t *palette_get(palette_id_t id)
+{
+    return ws_palette_get((ws_palette_id_t)id);
+}
+
+static inline void palette_sample_rgb8(const palette_t *pal,
+                                       float u,
+                                       uint8_t *r,
+                                       uint8_t *g,
+                                       uint8_t *b)
+{
+    ws_palette_sample_rgb8((const ws_palette_t *)pal, u, r, g, b);
+}
 
 #ifdef __cplusplus
 }

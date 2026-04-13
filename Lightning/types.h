@@ -4,15 +4,15 @@
  * @brief   Common types and definitions for LED lighting system
  * @details Defines core data structures and enumerations used throughout
  *          the ambient lighting system including zones, effects, palettes,
- *          and scene player states.
+ *          and base-scene states.
  *
  * @section Types Overview
- * - ws_zone_id_t: Logical zone identifiers (strip, handle, storage, footwell)
+ * - zone_id_t: Logical zone identifiers (strip, handle, storage, footwell)
  * - fx_id_t: Visual effect identifiers (gradient, wave, pulse, etc.)
  * - fx_state_t: Runtime state for effects
  * - oneshot_t: One-shot effect state (intro/outro)
- * - scene_player_t: Scene player state machine
- * - player_stage_t: Player stage enumeration (idle, intro, scene, outro)
+ * - base_scene_t: Base-scene state machine
+ * - base_scene_stage_t: Base-scene stage enumeration (idle, intro, scene, outro)
  *
  * @version 2.0
  * @date    2025
@@ -29,12 +29,12 @@ extern "C" {
 
 /* Logical zones inside door/ambient module */
 typedef enum {
-    WS_ZONE_STRIP = 0,     // main long strip
-    WS_ZONE_HANDLE,        // door handle
-    WS_ZONE_STORAGE,       // pocket / storage
-    WS_ZONE_FOOTWELL,      // footwell
-    WS_ZONE_MAX
-} ws_zone_id_t;
+    ZONE_STRIP = 0,     // main long strip
+    ZONE_HANDLE,        // door handle
+    ZONE_STORAGE,       // pocket / storage
+    ZONE_FOOTWELL,      // footwell
+    ZONE_MAX
+} zone_id_t;
 
 /* Effect identifiers */
 typedef enum {
@@ -94,19 +94,25 @@ typedef struct {
     uint16_t         count;      /* LED count in zone */
 } oneshot_t;
 
-/* Scene player */
+/* Base-scene state machine */
 typedef enum {
-    PST_IDLE = 0,
-    PST_INTRO,
-    PST_BRIDGE,
-    PST_SCENE,
-    PST_OUTRO
-} player_stage_t;
+    BASE_SCENE_IDLE = 0,
+    BASE_SCENE_INTRO,
+    BASE_SCENE_BRIDGE,
+    BASE_SCENE_ACTIVE,
+    BASE_SCENE_OUTRO
+} base_scene_stage_t;
 
-typedef uint8_t ws_theme_id_t;
+typedef uint8_t theme_id_t;
+
+typedef enum {
+    MOTION_PROFILE_LUXURY = 0u,
+    MOTION_PROFILE_CALM   = 1u,
+    MOTION_PROFILE_SPORT  = 2u
+} motion_profile_t;
 
 typedef struct {
-    player_stage_t stage;
+    base_scene_stage_t stage;
 
     uint32_t t0_ms;
 
@@ -114,7 +120,7 @@ typedef struct {
     float    theme_brightness;
     float    theme_dimming;
 
-    ws_theme_id_t theme;
+    theme_id_t theme;
 
     oneshot_t intro;
     oneshot_t outro;
@@ -128,10 +134,13 @@ typedef struct {
     
     /* Crossfade state */
     uint8_t       crossfade_active;      /* 1 = crossfade in progress */
-    ws_theme_id_t theme_next;            /* next theme during crossfade */
+    theme_id_t theme_next;            /* next theme during crossfade */
     fx_state_t    st_scene_next;         /* effect state for next theme */
     uint32_t      crossfade_start_ms;    /* when crossfade started */
-} scene_player_t;
+    float         crossfade_blend_smooth;/* smoothed crossfade blend (0..1) */
+    float         bridge_blend_smooth;   /* smoothed bridge blend (0..1) */
+    float         global_brightness_smooth; /* LPF-smoothed output brightness */
+} base_scene_t;
 
 #ifndef CLAMP01
 #define CLAMP01(x) ((x)<0.0f?0.0f:((x)>1.0f?1.0f:(x)))  /**< Clamp value to [0.0, 1.0] range */

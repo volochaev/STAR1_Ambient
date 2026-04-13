@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
- * @file    presets.h
- * @brief   Theme presets and configuration for ambient lighting
+ * @file    themes.h
+ * @brief   Theme definitions and configuration for ambient lighting
  * @details Defines ambient lighting themes organized into banks (Amber, Blue, White).
  *          Each theme includes effect configuration, palettes, and zone profiles.
  *
@@ -12,7 +12,7 @@
  * - White Bank: Neutral, crystal-inspired themes
  *
  * @section Theme Structure
- * Each theme (ws_theme_desc_t) defines:
+ * Each theme (theme_definition_t) defines:
  * - Main effect and palette
  * - Theme brightness
  * - Zone-specific profiles (strip, handle, storage, footwell)
@@ -38,10 +38,10 @@ extern "C" {
 
 typedef struct {
     fx_id_t         fx;             /* какой FX использовать в зоне */
-    ws_palette_id_t pal_id;         /* какая палитра */
+    palette_id_t    pal_id;         /* какая палитра */
     float           rel_brightness; /* множитель яркости зоны (0..1) */
     float           accent_u;       /* 0..1, смещение выборки палитры для solid */
-} ws_zone_profile_t;
+} zone_profile_t;
 
 /* -----------------------------------------------------------------------
  * Описание темы
@@ -49,10 +49,10 @@ typedef struct {
 
 typedef struct {
     fx_id_t          fx_main;                   /* FX для основной сцены */
-    ws_palette_id_t  pal_main;                  /* базовая палитра темы */
+    palette_id_t     pal_main;                  /* базовая палитра темы */
     float            theme_brightness;          /* базовая яркость темы (0..1) */
-    ws_zone_profile_t zone[WS_ZONE_MAX];        /* профили по логическим зонам */
-} ws_theme_desc_t;
+    zone_profile_t zone[ZONE_MAX];        /* профили по логическим зонам */
+} theme_definition_t;
 
 /* -----------------------------------------------------------------------
  * Список тем (12 штук, сгруппированы по 3 OEM-цветам)
@@ -78,10 +78,15 @@ typedef enum {
     THEME_WHITE_GLACIER_MIST,
 
     THEME_MAX_
-} ws_theme_enum_t;
+} theme_enum_t;
 
-/* Внешний ID темы в системе — uint8_t (из types.h: ws_theme_id_t) */
-const ws_theme_desc_t* ws_theme_get(ws_theme_id_t id);
+/* Внешний ID темы в системе — uint8_t (из types.h: theme_id_t) */
+const theme_definition_t* theme_get(theme_id_t id);
+float theme_motion_scale(theme_id_t id);  /* Theme motion profile scale (0..n) */
+float fx_base_speed(fx_id_t fx);             /* Base speed for continuous FX */
+float theme_personality_speed(theme_id_t id); /* Per-theme motion signature speed multiplier */
+float theme_personality_depth(theme_id_t id); /* Per-theme cabin depth signature (-1..1) */
+float theme_personality_phase(theme_id_t id); /* Per-theme phase seed (0..1) */
 
 /* -----------------------------------------------------------------------
  * OEM color → theme banks (для Extended Mode)
@@ -97,35 +102,35 @@ typedef enum {
 
 /* Банк тем для одного OEM-цвета */
 typedef struct {
-    const ws_theme_id_t *themes;  /* массив ID тем (ws_theme_id_t) */
+    const theme_id_t *themes;  /* массив ID тем (theme_id_t) */
     uint8_t              count;   /* сколько тем в банке */
-} ws_theme_bank_t;
+} theme_bank_t;
 
-/* Глобальные банки (описаны в presets.c) */
-extern const ws_theme_bank_t g_theme_banks[OEM_COLOR_MAX];
+/* Глобальные банки (описаны в themes.c) */
+extern const theme_bank_t g_theme_banks[OEM_COLOR_MAX];
 
 /* Получить банк по OEM-цвету; вернёт NULL, если id некорректен/пустой */
-const ws_theme_bank_t* ws_theme_get_bank(oem_color_id_t id);
+const theme_bank_t* theme_get_bank(oem_color_id_t id);
 
 /*
  * Выбрать "следующую" тему внутри банка.
  * Если current не найден в банке — вернёт первую (themes[0]).
  */
-ws_theme_id_t ws_theme_bank_next(const ws_theme_bank_t *bank,
-                                 ws_theme_id_t          current);
+theme_id_t theme_bank_next(const theme_bank_t *bank,
+                                 theme_id_t          current);
 
 /*
  * Стартовая тема для данного OEM-цвета
  * (обычно первая тема в соответствующем банке).
  */
-ws_theme_id_t ws_theme_default_for_oem(oem_color_id_t id);
+theme_id_t theme_default_for_oem(oem_color_id_t id);
 
 /*
  * Проверить, принадлежит ли тема тому же банку, что и эталонная тема.
  * Используется для авто-ротации: если обе темы в одном банке, 
  * изменение не требует outro/intro.
  */
-uint8_t ws_theme_same_bank(ws_theme_id_t theme_a, ws_theme_id_t theme_b);
+uint8_t theme_same_bank(theme_id_t theme_a, theme_id_t theme_b);
 
 #ifdef __cplusplus
 }

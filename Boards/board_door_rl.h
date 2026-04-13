@@ -30,11 +30,9 @@ extern ws2812_t g_rl_handle;
 extern ws2812_t g_rl_storage;
 extern ws2812_t g_rl_footwell;
 
-/* Маппинг логических зон для zones.c */
-extern const zone_map_t g_zone_map[WS_ZONE_MAX];
-
 /* Инициализация железа ленты на этом борде (TIM, DMA, буферы) */
 void board_rl_led_init(void);
 
 /* Удобный хелпер: отрендерить все линии этого борда */
 void board_rl_led_render_all(void);
+void board_rl_dma_tc(TIM_HandleTypeDef *htim);

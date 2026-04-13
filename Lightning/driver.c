@@ -55,8 +55,10 @@ static void gamma_tables_init(void)
         float v = (float)i * inv255;
         float fwd = powf(v, AMB_GAMMA_EXP) * 255.0f;
         float inv = powf(v, 1.0f / AMB_GAMMA_EXP) * 255.0f;
-        if (fwd < 0.0f) fwd = 0.0f; if (fwd > 255.0f) fwd = 255.0f;
-        if (inv < 0.0f) inv = 0.0f; if (inv > 255.0f) inv = 255.0f;
+        if (fwd < 0.0f) fwd = 0.0f;
+        if (fwd > 255.0f) fwd = 255.0f;
+        if (inv < 0.0f) inv = 0.0f;
+        if (inv > 255.0f) inv = 255.0f;
         g_gamma_fwd[i] = (uint8_t)(fwd + 0.5f);
         g_gamma_inv[i] = (uint8_t)(inv + 0.5f);
     }
@@ -102,12 +104,36 @@ static void ws_apply_channel_power(uint8_t on)
 #endif
 }
 
+static void ws_get_bit_timings(const ws2812_t *ws, uint32_t *zero, uint32_t *one)
+{
+    uint32_t z = WS_T0H;
+    uint32_t o = WS_T1H;
+
+    if (ws && ws->htim) {
+        /* Derive WS timings from current timer period to stay robust against
+         * timer/system clock changes after crystal or PLL reconfiguration. */
+        uint32_t period_ticks = __HAL_TIM_GET_AUTORELOAD(ws->htim) + 1u;
+        if (period_ticks >= 4u) {
+            z = (period_ticks * 30u + 50u) / 100u;  /* ~0.30T high for '0' */
+            o = (period_ticks * 60u + 50u) / 100u;  /* ~0.60T high for '1' */
+
+            if (z < 1u) z = 1u;
+            if (o <= z) o = z + 1u;
+            if (o >= period_ticks) o = period_ticks - 1u;
+        }
+    }
+
+    if (zero) *zero = z;
+    if (one)  *one = o;
+}
+
 static void pack_into(ws2812_t *ws, uint32_t *dst)
 {
     if (!ws || !dst || !ws->rgb) return;
 
-    const uint32_t one  = WS_T1H;
-    const uint32_t zero = WS_T0H;
+    uint32_t one  = WS_T1H;
+    uint32_t zero = WS_T0H;
+    ws_get_bit_timings(ws, &zero, &one);
 
     float brf  = ws_effective_brightness(ws);
     uint32_t bq = (uint32_t)(brf * 255.f + 0.5f);
@@ -256,15 +282,31 @@ void ws_dma_tc_isr(ws2812_t *ws, TIM_HandleTypeDef *htim)
 
 void ws_power_set(uint8_t on)
 {
-    g_power_state = on ? 1u : 0u;
+    uint8_t new_state = on ? 1u : 0u;
+    volatile uint32_t settle_delay;
+
+    if (new_state == g_power_state) {
+        return; /* Avoid re-toggling rails/OE on every frame tick */
+    }
+    g_power_state = new_state;
 
     if (g_power_state) {
+#ifdef LED_DATA_OE_Pin
+        /* Keep data line muted while rail/channel switches settle. */
+        HAL_GPIO_WritePin(LED_DATA_OE_GPIO_Port,
+                          LED_DATA_OE_Pin,
+                          GPIO_PIN_SET);
+#endif
 #ifdef LED_PWR_EN_Pin
         HAL_GPIO_WritePin(LED_PWR_EN_GPIO_Port,
                           LED_PWR_EN_Pin,
                           GPIO_PIN_SET);
 #endif
         ws_apply_channel_power(1u);
+        /* ~100-200us coarse settle (depends on core clock), one-shot on transition only. */
+        for (settle_delay = 0u; settle_delay < 8000u; ++settle_delay) {
+            __NOP();
+        }
 #ifdef LED_DATA_OE_Pin
         HAL_GPIO_WritePin(LED_DATA_OE_GPIO_Port,
                           LED_DATA_OE_Pin,

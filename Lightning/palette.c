@@ -48,9 +48,9 @@ static const ws_pal_stop_t PAL_EMERALD_VEIL[] = {
 static const ws_pal_stop_t PAL_AURORA_GLACIER[] = {
     {0.00f,  12,  96,  78},
     {0.24f,  36, 148, 140},
-    {0.52f,  82, 204, 210},
-    {0.78f, 120, 170, 245},
-    {1.00f,  96, 132, 252},
+    {0.52f,  72, 198, 214},
+    {0.78f,  98, 170, 240},
+    {1.00f,  72, 130, 236},
 };
 
 static const ws_pal_stop_t PAL_SAPPHIRE_ICE[] = {
@@ -64,9 +64,9 @@ static const ws_pal_stop_t PAL_SAPPHIRE_ICE[] = {
 static const ws_pal_stop_t PAL_NIGHT_OPAL[] = {
     {0.00f,   6,  10,  36},
     {0.25f,  16,  20,  72},
-    {0.50f,  40,  36, 118},
-    {0.75f,  72,  54, 168},
-    {1.00f, 110,  88, 210},
+    {0.50f,  30,  40, 126},
+    {0.75f,  52,  62, 176},
+    {1.00f,  82, 102, 206},
 };
 
 static const ws_pal_stop_t PAL_GLACIER_MIST[] = {
@@ -125,6 +125,8 @@ const ws_palette_t* ws_palette_get(ws_palette_id_t id)
 void ws_palette_sample_rgb8(const ws_palette_t *pal, float u,
                             uint8_t *r, uint8_t *g, uint8_t *b)
 {
+    static uint32_t s_dither_call_counter = 0u;
+
     if (r) *r = 0;
     if (g) *g = 0;
     if (b) *b = 0;
@@ -161,15 +163,39 @@ void ws_palette_sample_rgb8(const ws_palette_t *pal, float u,
 #if AMB_ENABLE_GAMMA
     const float inv255 = 1.0f / 255.0f;
     float gexp = AMB_GAMMA_EXP;
+    if (gexp < 0.1f) gexp = 0.1f;
+#if (AMB_GAMMA_MODE == AMB_GAMMA_MODE_LINEAR)
+    {
+        float inv_gamma = 1.0f / gexp;
+        rf = powf(rf * inv255, inv_gamma) * 255.0f;
+        gf = powf(gf * inv255, inv_gamma) * 255.0f;
+        bf = powf(bf * inv255, inv_gamma) * 255.0f;
+    }
+#else
     rf = powf(rf * inv255, gexp) * 255.0f;
     gf = powf(gf * inv255, gexp) * 255.0f;
     bf = powf(bf * inv255, gexp) * 255.0f;
 #endif
+#endif
+
+    /* Optional saturation lift after gamma to keep colors punchy on real strips. */
+    {
+        float sat = AMB_SATURATION_BOOST;
+        if (sat > 0.0f && fabsf(sat - 1.0f) > 0.001f) {
+            float luma = 0.2126f * rf + 0.7152f * gf + 0.0722f * bf;
+            rf = luma + (rf - luma) * sat;
+            gf = luma + (gf - luma) * sat;
+            bf = luma + (bf - luma) * sat;
+        }
+    }
 
     /* Обрезаем к диапазону */
-    if (rf < 0.0f) rf = 0.0f; if (rf > 255.0f) rf = 255.0f;
-    if (gf < 0.0f) gf = 0.0f; if (gf > 255.0f) gf = 255.0f;
-    if (bf < 0.0f) bf = 0.0f; if (bf > 255.0f) bf = 255.0f;
+    if (rf < 0.0f) rf = 0.0f;
+    if (rf > 255.0f) rf = 255.0f;
+    if (gf < 0.0f) gf = 0.0f;
+    if (gf > 255.0f) gf = 255.0f;
+    if (bf < 0.0f) bf = 0.0f;
+    if (bf > 255.0f) bf = 255.0f;
 
     uint8_t R = (uint8_t)(rf + 0.5f);
     uint8_t G = (uint8_t)(gf + 0.5f);
@@ -178,11 +204,13 @@ void ws_palette_sample_rgb8(const ws_palette_t *pal, float u,
 #if AMB_ENABLE_DITHERING
     uint32_t t_ms  = HAL_GetTick();
     uint32_t phase = (t_ms >> 1);
-    uint32_t seed = (uint32_t)(u * 10000.0f) ^ phase;
+    uint32_t seed = (uint32_t)(u * 10000.0f) ^ phase ^ (s_dither_call_counter * 2654435761u);
     if (R > 0 && R < 255 && (seed & 0x01)) R++;
     if (G > 0 && G < 255 && (seed & 0x02)) G++;
     if (B > 0 && B < 255 && (seed & 0x04)) B++;
 #endif
+
+    s_dither_call_counter++;
 
     if (r) *r = R;
     if (g) *g = G;

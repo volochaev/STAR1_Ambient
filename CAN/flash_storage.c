@@ -50,7 +50,7 @@ static uint32_t flash_storage_calc_crc(const flash_storage_data_t *in)
     return crc32_calculate((const uint8_t *)&tmp, sizeof(tmp));
 }
 
-int flash_storage_load(amb_can_state_t *state)
+int flash_storage_load(can_state_t *state)
 {
     if (!state) return -1;
     
@@ -84,7 +84,7 @@ int flash_storage_load(amb_can_state_t *state)
     return 0;
 }
 
-int flash_storage_save(const amb_can_state_t *state)
+int flash_storage_save(const can_state_t *state)
 {
     if (!state) return -1;
     
