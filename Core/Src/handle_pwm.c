@@ -1,5 +1,5 @@
 #include "handle_pwm.h"
-#include "features.h"
+#include "ambient_config.h"
 
 /* PT4211 DIM may be wired as sink-to-GND (active-low) on some boards. */
 #ifndef AMB_HANDLE_PWM_ACTIVE_LOW
@@ -37,16 +37,15 @@ static float slew_level(float current, float target, uint32_t dt_ms)
 {
     uint32_t tau_ms;
     float alpha;
-    float eased_alpha;
 
     tau_ms = (target >= current) ? AMB_HANDLE_PWM_ATTACK_MS : AMB_HANDLE_PWM_RELEASE_MS;
     if (tau_ms == 0u) return target;
 
     if (dt_ms > 100u) dt_ms = 100u;
     alpha = (float)dt_ms / ((float)tau_ms + (float)dt_ms);
-    eased_alpha = smoothstep3(alpha);
-
-    current += (target - current) * eased_alpha;
+    /* Use alpha directly: applying smoothstep(alpha) at small dt makes
+     * the effective response many times slower than configured tau. */
+    current += (target - current) * alpha;
     if ((target - current < 0.001f) && (target - current > -0.001f)) {
         current = target;
     }

@@ -28,27 +28,37 @@
 extern "C" {
 #endif
 
-/* Определение типа платы для CAN discovery */
+/* Board type used by CAN discovery/election. */
 #ifndef BOARD_TYPE
 #define BOARD_TYPE  BOARD_TYPE_FL
 #endif
 
-/* Количество диодов в каждой физической линии (подправь под себя) */
-#define FL_STRIP_LEDS      120u   // длинная линия по торпедо/вставке
-#define FL_HANDLE_LEDS     8u     // ручка открывания
-#define FL_STORAGE_LEDS    6u     // ниша/карман
-#define FL_FOOTWELL_LEDS   10u    // подсветка ног
+/* LED count per physical line (tune per hardware revision). */
+#define FL_STRIP_LEDS      50u   // main decorative strip
+#define FL_HANDLE_LEDS     8u    // door handle accent
+#define FL_STORAGE_LEDS    6u    // storage pocket accent
+#define FL_FOOTWELL_LEDS   10u   // footwell accent
 
-/* Экземпляры драйвера для каждой линии */
+#define FL_STRIP_FIRST_LED     0u
+#define FL_HANDLE_FIRST_LED    0u
+#define FL_STORAGE_FIRST_LED   0u
+#define FL_FOOTWELL_FIRST_LED  0u
+
+#define FL_STRIP_ORDER     WS_COLOR_ORDER_GRB
+#define FL_HANDLE_ORDER    WS_COLOR_ORDER_GRB
+#define FL_STORAGE_ORDER   WS_COLOR_ORDER_GRB
+#define FL_FOOTWELL_ORDER  WS_COLOR_ORDER_GRB
+
+/* Driver instances for each physical line. */
 extern ws2812_t g_fl_strip;
 extern ws2812_t g_fl_handle;
 extern ws2812_t g_fl_storage;
 extern ws2812_t g_fl_footwell;
 
-/* Инициализация железа ленты на этом борде (TIM, DMA, буферы) */
+/* Initialize board LED hardware resources (TIM/DMA/frame buffers). */
 void board_fl_led_init(void);
 
-/* Удобный хелпер: отрендерить все линии этого борда */
+/* Render all LED lines owned by this board. */
 void board_fl_led_render_all(void);
 void board_fl_dma_tc(TIM_HandleTypeDef *htim);
 

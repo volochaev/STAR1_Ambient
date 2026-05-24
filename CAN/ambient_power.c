@@ -1,10 +1,14 @@
+/**
+ * @file ambient_power.c
+ * @brief CAN-driven sleep/wake policy and diagnostics.
+ */
 #include "ambient_power.h"
 
 #if AMB_ENABLE_SLEEP_MODE
 
 #include <string.h>
 
-#include "features.h"
+#include "ambient_config.h"
 #include "led_runtime.h"
 
 static volatile uint32_t g_last_can_activity_ms = 0u;
@@ -12,11 +16,13 @@ static volatile uint8_t g_sleep_requested = 0u;
 static volatile uint8_t g_is_sleeping = 0u;
 static volatile can_power_diag_t g_power_diag = {0};
 
+/* Wrap-safe elapsed milliseconds helper. */
 static uint32_t elapsed_ms32(uint32_t now, uint32_t then)
 {
     return (now >= then) ? (now - then) : ((UINT32_MAX - then) + now + 1u);
 }
 
+/* Initialize power manager state and diagnostics. */
 void can_power_init(void)
 {
     g_last_can_activity_ms = HAL_GetTick();
@@ -25,9 +31,13 @@ void can_power_init(void)
     memset((void *)&g_power_diag, 0, sizeof(g_power_diag));
 }
 
+/* Register bus activity and clear idle-timeout sleep request when needed. */
 void can_power_note_can_activity(void)
 {
     g_last_can_activity_ms = HAL_GetTick();
+    if (g_sleep_requested && g_power_diag.last_sleep_reason == CAN_SLEEP_REASON_IDLE_TIMEOUT) {
+        g_sleep_requested = 0u;
+    }
     if (g_is_sleeping) {
         g_power_diag.last_wake_reason = CAN_WAKE_REASON_CAN_RX;
         g_power_diag.last_wake_ms = g_last_can_activity_ms;
@@ -36,21 +46,40 @@ void can_power_note_can_activity(void)
     g_is_sleeping = 0u;
 }
 
+/* Report whether low-power mode is currently active. */
 uint8_t can_power_is_sleeping(void)
 {
     return g_is_sleeping;
 }
 
+/* Report whether sleep transition has been requested. */
 uint8_t can_power_should_sleep(void)
 {
     return g_sleep_requested;
 }
 
+/* Clear pending sleep request flag. */
 void can_power_clear_sleep_request(void)
 {
     g_sleep_requested = 0u;
 }
 
+/* Request sleep due to lock event policy. */
+void can_power_request_sleep_lock(void)
+{
+    uint32_t now;
+    if (g_is_sleeping || g_sleep_requested) {
+        return;
+    }
+    now = HAL_GetTick();
+    g_sleep_requested = 1u;
+    g_power_diag.sleep_request_count++;
+    g_power_diag.last_sleep_reason = CAN_SLEEP_REASON_LOCK_EVENT;
+    g_power_diag.last_sleep_request_ms = now;
+    g_power_diag.last_idle_ms_at_request = elapsed_ms32(now, g_last_can_activity_ms);
+}
+
+/* Mark module as awake from explicit runtime path. */
 void can_power_mark_awake(void)
 {
     g_is_sleeping = 0u;
@@ -61,12 +90,14 @@ void can_power_mark_awake(void)
     g_power_diag.wake_count++;
 }
 
+/* Return current idle time since last CAN activity. */
 uint32_t can_power_get_idle_time_ms(void)
 {
     uint32_t now = HAL_GetTick();
     return elapsed_ms32(now, g_last_can_activity_ms);
 }
 
+/* Evaluate idle timeout and arm sleep request when threshold is reached. */
 void can_power_check_sleep_timeout(void)
 {
     uint32_t idle_ms;
@@ -88,6 +119,7 @@ void can_power_check_sleep_timeout(void)
     }
 }
 
+/* Enter sleep mode: power down LEDs, set transceiver standby, stop CAN. */
 void can_power_enter_sleep(FDCAN_HandleTypeDef *hfdcan)
 {
     if (g_is_sleeping) {
@@ -116,6 +148,7 @@ void can_power_enter_sleep(FDCAN_HandleTypeDef *hfdcan)
     }
 }
 
+/* Exit sleep mode and restore CAN notifications/LED power policy. */
 void can_power_exit_sleep(FDCAN_HandleTypeDef *hfdcan)
 {
     if (!g_is_sleeping) {
@@ -145,6 +178,7 @@ void can_power_exit_sleep(FDCAN_HandleTypeDef *hfdcan)
     }
 }
 
+/* Record STOP wakeup source for diagnostics. */
 void can_power_note_stop_wakeup(uint8_t wake_src)
 {
     uint32_t now = HAL_GetTick();

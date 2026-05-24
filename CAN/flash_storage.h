@@ -32,43 +32,50 @@ extern "C" {
 
 /* Flash storage configuration */
 /* STM32G431CBUx: 128KB Flash, page size = 2KB */
-/* Используем последнюю страницу Flash для хранения настроек */
-#define FLASH_STORAGE_BASE_ADDR    0x0801F800U  /* Адрес последней страницы (128KB - 2KB) */
+/* Store settings in the last Flash page. */
+#define FLASH_STORAGE_BASE_ADDR    0x0801F800U  /* Last page address (128KB - 2KB) */
 #define FLASH_STORAGE_PAGE_SIZE    0x800U       /* 2KB */
-#define FLASH_STORAGE_MAGIC         0x53544152U  /* "STAR" в ASCII */
+#define FLASH_STORAGE_MAGIC         0x53544152U  /* "STAR" in ASCII */
 
-/* Количество OEM банков (AMBER, BLUE, WHITE) */
-#define FLASH_OEM_BANK_COUNT    3
-
-/* Структура данных для сохранения в Flash */
 typedef struct {
-    uint32_t magic;              /* Magic number для проверки валидности */
-    uint32_t crc;                /* CRC32 для проверки целостности */
-    uint8_t  bank_id;            /* Последний bank_id (0..2) */
-    uint8_t  theme_index;        /* Последний theme_index */
-    uint8_t  last_oem_color;     /* Последний OEM цвет (для cyclic rotation) */
-    uint8_t  oem_theme_indices[FLASH_OEM_BANK_COUNT]; /* Циклические индексы тем для каждого OEM банка */
-    uint8_t  reserved;           /* Резерв для выравнивания */
-    uint32_t reserved2[14];      /* Резерв для будущих расширений */
+    uint8_t valid;
+    uint8_t color_id;
+    uint8_t brightness_raw;
+    uint8_t effect_id;
+    uint32_t timestamp_ms;
+} flash_modern_state_t;
+
+/* Payload persisted in Flash page. */
+typedef struct {
+    uint32_t magic;              /* Magic number for validity check. */
+    uint32_t crc;                /* CRC32 for integrity check. */
+    uint8_t  bank_id;            /* Last bank_id (0..2). */
+    uint8_t  oem_color;          /* Last OEM color (0..2). */
+    uint8_t  oem_brightness_raw; /* 0..5 */
+    uint8_t  night_mode;         /* 0/1 */
+    uint8_t  reserved[2];        /* Reserved for alignment. */
+    uint32_t reserved2[14];      /* Reserved for future extensions. */
 } __attribute__((packed)) flash_storage_data_t;
 
-/* Функции для работы с Flash storage */
+/* Flash storage API. */
 /**
- * @brief Загрузить настройки из Flash
- * @return 0 если успешно, -1 если данные невалидны или отсутствуют
+ * @brief Load settings from Flash.
+ * @return 0 on success, -1 when data is invalid or absent.
  */
 int flash_storage_load(can_state_t *state);
+int flash_storage_load_extended(can_state_t *state, flash_modern_state_t *modern_state);
 
 /**
- * @brief Сохранить настройки в Flash
- * @param state Указатель на структуру с настройками для сохранения
- * @return 0 если успешно, -1 при ошибке
+ * @brief Save settings to Flash.
+ * @param state Pointer to settings snapshot to persist.
+ * @return 0 on success, -1 on error.
  */
 int flash_storage_save(const can_state_t *state);
+int flash_storage_save_extended(const can_state_t *state, const flash_modern_state_t *modern_state);
 
 /**
- * @brief Стереть страницу Flash (для отладки/сброса)
- * @return 0 если успешно, -1 при ошибке
+ * @brief Erase Flash page (debug/reset helper).
+ * @return 0 on success, -1 on error.
  */
 int flash_storage_erase(void);
 

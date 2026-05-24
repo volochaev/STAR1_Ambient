@@ -33,7 +33,7 @@ __ALIGNED(4) static uint32_t fr_storage_dma[BOARD_DMA_BUF_LEN(FR_STORAGE_LEDS)];
 static uint8_t fr_footwell_fb[FR_FOOTWELL_LEDS * BYTES_PER_LED];
 __ALIGNED(4) static uint32_t fr_footwell_dma[BOARD_DMA_BUF_LEN(FR_FOOTWELL_LEDS)];
 
-/* === Экземпляры ws2812_t (фактически физические линии/zones) ========= */
+/* WS2812 driver instances (physical board lines/zones). */
 
 ws2812_t g_fr_strip;
 ws2812_t g_fr_handle;
@@ -41,13 +41,13 @@ ws2812_t g_fr_storage;
 ws2812_t g_fr_footwell;
 
 static const board_led_line_t g_fr_lines[] = {
-    { &g_fr_strip, TIM_CHANNEL_1, fr_strip_fb, fr_strip_dma, FR_STRIP_LEDS, 1u },
-    { &g_fr_handle, TIM_CHANNEL_2, fr_handle_fb, fr_handle_dma, FR_HANDLE_LEDS, 1u },
-    { &g_fr_storage, TIM_CHANNEL_3, fr_storage_fb, fr_storage_dma, FR_STORAGE_LEDS, 1u },
-    { &g_fr_footwell, TIM_CHANNEL_4, fr_footwell_fb, fr_footwell_dma, FR_FOOTWELL_LEDS, 1u },
+    { &g_fr_strip, TIM_CHANNEL_1, fr_strip_fb, fr_strip_dma, FR_STRIP_LEDS, FR_STRIP_ORDER, 1u },
+    { &g_fr_handle, TIM_CHANNEL_2, fr_handle_fb, fr_handle_dma, FR_HANDLE_LEDS, FR_HANDLE_ORDER, 1u },
+    { &g_fr_storage, TIM_CHANNEL_3, fr_storage_fb, fr_storage_dma, FR_STORAGE_LEDS, FR_STORAGE_ORDER, 1u },
+    { &g_fr_footwell, TIM_CHANNEL_4, fr_footwell_fb, fr_footwell_dma, FR_FOOTWELL_LEDS, FR_FOOTWELL_ORDER, 1u },
 };
 
-/* === Инициализация ==================================================== */
+/* Initialization. */
 
 void board_fr_led_init(void)
 {
@@ -57,7 +57,7 @@ void board_fr_led_init(void)
                                  1u);
 }
 
-/* === Рендер всех линий борда ========================================= */
+/* Render all board lines. */
 
 void board_fr_led_render_all(void)
 {

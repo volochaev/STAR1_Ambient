@@ -21,19 +21,19 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "board_selected.h"
+#include "board_selected.h" /* defines BOARD_TYPE for the whole firmware build. */
 #include "board_dispatch.h"
-
-/* board_selected.h defines BOARD_TYPE for the whole firmware build. */
 #include "base_scene.h"
 #include "director.h"
 #include "event_layer.h"
-#include "themes.h"
 #include "zones.h"
 #include "ambient.h"
-#include "features.h"
+#include "ambient_config.h"
 #include "handle_pwm.h"
+#include "runtime_event_queue.h"
+#include "runtime_debug_hooks.h"
 #include "runtime_flow.h"
+#include "app_runtime.h"
 #include <string.h>
 /* USER CODE END Includes */
 
@@ -43,8 +43,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-/* DEMO_MODE теперь определен в main.h */
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -66,31 +64,20 @@ DMA_HandleTypeDef hdma_tim2_ch4;
 
 /* USER CODE BEGIN PV */
 base_scene_t g_base_scene;             // base scene
-director_t g_director;          // orchestration/director layer
-theme_id_t g_current_theme;      // текущая тема
-oem_color_id_t g_oem_color;          // текущий "OEM цвет" (amber/blue/white)
+director_t g_director;                 // orchestration/director layer
+oem_color_id_t g_oem_color;            // current OEM color selector
 
-uint32_t g_last_tick_ms = 0;   // для delta_ms в base_scene_tick
+uint32_t g_last_tick_ms = 0;          // delta_ms source for runtime tick
 
-#if DEMO_MODE
-uint32_t g_last_theme_switch_ms = 0;  // когда последний раз меняли тему (для демо режима)
-static uint8_t g_was_master = 0;  // предыдущий статус master (для отслеживания перехода)
-#endif
-
-static uint8_t g_can_protocol_started = 0;  // OEM пакет получен, CAN протокол запущен
+static uint8_t g_can_protocol_started = 0;  // first OEM packet received
 static uint32_t g_can_protocol_start_ms = 0;
 static uint32_t g_wait_oem_enter_ms = 0u;
 static uint8_t g_wait_oem_after_wake = 0u;
-#if AMB_DEBUG_BSM_RX_PULSE
-static volatile uint32_t g_dbg_bsm_rx_until_ms = 0;
-static volatile uint32_t g_dbg_non_oem_rx_until_ms = 0;
-static volatile uint32_t g_dbg_non_oem_rx_id = 0;
-#endif
 
 #if AMB_ENABLE_SLEEP_MODE
-static uint8_t g_sleep_fade_active = 0;   // Флаг активного затухания перед сном
-static uint32_t g_sleep_fade_start_ms = 0; // Время начала затухания
-static float g_sleep_fade_start_brightness = 1.0f; // Начальная яркость при затухании
+static uint8_t g_sleep_fade_active = 0;      // sleep fade-out is active
+static uint32_t g_sleep_fade_start_ms = 0;   // sleep fade start timestamp
+static float g_sleep_fade_start_brightness = 1.0f; // brightness at fade start
 #endif
 static runtime_mode_t g_runtime_state = RUNTIME_BOOT;
 static runtime_flow_ctx_t g_runtime_flow;
@@ -105,28 +92,26 @@ static void MX_FDCAN1_Init(void);
 static void MX_IWDG_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE && AMB_ENABLE_WATCHDOG
+#if AMB_ENABLE_SLEEP_MODE && AMB_ENABLE_WATCHDOG
 static void rtc_wakeup_init_1hz(void);
 static void rtc_wakeup_start_1s(void);
 static void rtc_wakeup_stop(void);
 #endif
 /* USER CODE BEGIN PFP */
-static void demo_mode_update(uint32_t now_ms);
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+#if AMB_ENABLE_SLEEP_MODE
 /**
- * @brief Настроить PA11 (FDCAN_RX) как EXTI для пробуждения из STOP mode
+ * @brief Configure PA11 (FDCAN_RX) as EXTI wake source for STOP mode.
  */
 static void configure_can_rx_exti_wakeup(void)
 {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-    /* Переконфигурируем PA11 как вход с EXTI на falling edge */
+    /* Reconfigure PA11 as EXTI input (falling edge). */
     GPIO_InitStruct.Pin = GPIO_PIN_11;
     GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;  /* CAN dominant = low */
     GPIO_InitStruct.Pull = GPIO_PULLUP;
@@ -134,11 +119,11 @@ static void configure_can_rx_exti_wakeup(void)
 
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_11);
 
-    /* Включаем EXTI прерывание */
+    /* Enable EXTI IRQs. */
     HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
-    /* Доп. wakeup от CAN transceiver WAKE/INT (PB7) */
+    /* Additional wake source from CAN transceiver WAKE/INT (PB7). */
     GPIO_InitStruct.Pin = FDCAN1_WAKEUP_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -149,19 +134,19 @@ static void configure_can_rx_exti_wakeup(void)
 }
 
 /**
- * @brief Восстановить PA11 как FDCAN_RX после пробуждения
+ * @brief Restore PA11 as FDCAN_RX after wakeup.
  */
 static void restore_can_rx_af(void)
 {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-    /* Отключаем EXTI */
+    /* Disable EXTI IRQs. */
     HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
     HAL_NVIC_DisableIRQ(EXTI9_5_IRQn);
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_11);
     __HAL_GPIO_EXTI_CLEAR_IT(FDCAN1_WAKEUP_Pin);
 
-    /* Восстанавливаем AF для FDCAN */
+    /* Restore alternate-function mapping for FDCAN. */
     GPIO_InitStruct.Pin = GPIO_PIN_11 | GPIO_PIN_12;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -169,7 +154,7 @@ static void restore_can_rx_af(void)
     GPIO_InitStruct.Alternate = GPIO_AF9_FDCAN1;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-    /* Возвращаем PB7 к штатному GPIO-input (без EXTI) */
+    /* Restore PB7 to normal GPIO input (without EXTI). */
     GPIO_InitStruct.Pin = FDCAN1_WAKEUP_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -177,9 +162,9 @@ static void restore_can_rx_af(void)
 }
 #endif
 
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE && AMB_ENABLE_WATCHDOG
+#if AMB_ENABLE_SLEEP_MODE && AMB_ENABLE_WATCHDOG
 /**
- * @brief Инициализация RTC wakeup базы (LSI -> RTC, 1Hz ck_spre)
+ * @brief Initialize RTC wakeup time base (LSI -> RTC, 1Hz ck_spre).
  */
 static void rtc_wakeup_init_1hz(void)
 {
@@ -223,7 +208,7 @@ static void rtc_wakeup_init_1hz(void)
 }
 
 /**
- * @brief Запуск периодического wakeup IRQ от RTC раз в 1 секунду
+ * @brief Start periodic RTC wakeup IRQ at 1-second interval.
  */
 static void rtc_wakeup_start_1s(void)
 {
@@ -257,7 +242,7 @@ static void rtc_wakeup_start_1s(void)
 }
 
 /**
- * @brief Остановить RTC wakeup IRQ
+ * @brief Stop RTC wakeup IRQ.
  */
 static void rtc_wakeup_stop(void)
 {
@@ -279,61 +264,6 @@ static void rtc_wakeup_stop(void)
     NVIC_DisableIRQ(RTC_WKUP_IRQn);
 }
 #endif
-
-/**
- * @brief Демо режим: автоматическое переключение тем (только для master)
- * @param now_ms Текущее время в миллисекундах
- * @note Вызывается только если DEMO_MODE == 1 и плата является master
- */
-static void demo_mode_update(uint32_t now_ms)
-{
-#if DEMO_MODE
-    uint8_t is_master = can_ambient_is_master();
-
-    // Если плата только что стала master, сбрасываем таймер переключения
-    if (is_master && !g_was_master) {
-        g_last_theme_switch_ms = now_ms;
-        g_was_master = 1;
-        return;  // Не переключаем тему сразу после становления master
-    }
-
-    g_was_master = is_master;
-
-    if (!is_master) {
-        return;  // Демо режим работает только на master
-    }
-
-    // Переключение темы раз в 20 секунд
-    if ((now_ms - g_last_theme_switch_ms) >= 20000u) {
-            led_runtime_strip_t *main_strip = board_dispatch_get_main_strip();
-        if (main_strip) {
-            // В демо режиме используем текущий g_oem_color (начальное значение BLUE)
-            // и обновляем его из CAN только если пришло реальное значение (не 0 = дефолтное AMBER)
-            runtime_inputs_t inputs;
-            can_ambient_fill_runtime_inputs(&inputs);
-            oem_color_id_t oem_col = (oem_color_id_t)inputs.can_state.oem_color;
-
-            // Обновляем g_oem_color только если пришло реальное значение через CAN (не 0 = дефолтное)
-            // Это предотвращает переключение на AMBER при старте, если g_oem_color был инициализирован как BLUE
-            if (oem_col != 0 && oem_col != g_oem_color) {
-                g_oem_color = oem_col;
-            }
-
-            const theme_bank_t *bank = theme_get_bank(g_oem_color);
-            if (bank) {
-                theme_id_t next = theme_bank_next(bank, g_current_theme);
-                g_current_theme = next;
-
-                base_scene_start_theme(main_strip, &g_base_scene, g_current_theme);
-                base_scene_start_intro(main_strip, &g_base_scene); // мягкий вход в новую тему
-            }
-        }
-        g_last_theme_switch_ms = now_ms;
-    }
-#else
-    (void)now_ms;  // Suppress unused parameter warning
-#endif
-}
 
 /* USER CODE END 0 */
 
@@ -373,24 +303,25 @@ int main(void)
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE && AMB_ENABLE_WATCHDOG
+#if AMB_ENABLE_SLEEP_MODE && AMB_ENABLE_WATCHDOG
 	rtc_wakeup_init_1hz();
 #endif
 
-	// 1) Инициализируем board (TIM2 + все LED линии, зоны, питание выкл)
+	// 1) Initialize board (TIM2 + all LED lines/zones, power off by default)
 	board_dispatch_led_init();
 	handle_pwm_init(&htim3, TIM_CHANNEL_1);
 	handle_pwm_set_brightness_pct(100u);
 
-	// 2) Инициализация CAN ambient системы (загружает настройки из flash)
+	// 2) Initialize CAN ambient stack (loads settings from Flash)
 	can_ambient_init(&hfdcan1);
+	runtime_event_queue_init();
+	runtime_debug_hooks_init();
 
-	// 3) Начальные значения (будут обновлены из CAN)
+	// 3) Seed defaults (will be updated from CAN)
 	g_oem_color = OEM_COLOR_AMBER;
-	g_current_theme = theme_default_for_oem(g_oem_color);
 
-	// 4) Инициализируем плеер
-	base_scene_init(&g_base_scene, g_current_theme);
+	// 4) Initialize runtime scene/director layers
+	base_scene_init(&g_base_scene);
 	director_init(&g_director);
 	event_layer_init();
 	memset(&g_runtime_flow, 0, sizeof(g_runtime_flow));
@@ -400,19 +331,17 @@ int main(void)
 	g_runtime_flow.wait_oem_enter_ms = &g_wait_oem_enter_ms;
 	g_runtime_flow.wait_oem_after_wake = &g_wait_oem_after_wake;
 	g_runtime_flow.last_tick_ms = &g_last_tick_ms;
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+#if AMB_ENABLE_SLEEP_MODE
 	g_runtime_flow.sleep_fade_active = &g_sleep_fade_active;
 	g_runtime_flow.sleep_fade_start_ms = &g_sleep_fade_start_ms;
 	g_runtime_flow.sleep_fade_start_brightness = &g_sleep_fade_start_brightness;
 #endif
 	g_runtime_flow.base_scene = &g_base_scene;
 	g_runtime_flow.director = &g_director;
-	g_runtime_flow.current_theme = &g_current_theme;
 	g_runtime_flow.oem_color = &g_oem_color;
 	g_runtime_flow.watchdog = &hiwdg;
-	g_runtime_flow.demo_mode_update = demo_mode_update;
 	g_runtime_flow.system_clock_restore = SystemClock_Config;
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+#if AMB_ENABLE_SLEEP_MODE
 	g_runtime_flow.prepare_wakeup_io = configure_can_rx_exti_wakeup;
 	g_runtime_flow.restore_after_wake = restore_can_rx_af;
 #if AMB_ENABLE_WATCHDOG
@@ -420,30 +349,11 @@ int main(void)
 	g_runtime_flow.rtc_wakeup_stop = rtc_wakeup_stop;
 #endif
 #endif
-#if AMB_DEBUG_BSM_RX_PULSE
-	g_runtime_flow.dbg_bsm_rx_until_ms = &g_dbg_bsm_rx_until_ms;
-	g_runtime_flow.dbg_non_oem_rx_until_ms = &g_dbg_non_oem_rx_until_ms;
-	g_runtime_flow.dbg_non_oem_rx_id = &g_dbg_non_oem_rx_id;
-#endif
 
-#if DEMO_MODE
-	// В демо режиме запускаем intro сразу
-	{
-		led_runtime_strip_t *main_strip = board_dispatch_get_main_strip();
-		if (main_strip) {
-			base_scene_start_intro(main_strip, &g_base_scene);
-		}
-	}
-	runtime_flow_set_state(&g_runtime_flow, RUNTIME_ACTIVE);
-#else
 	runtime_flow_set_state(&g_runtime_flow, RUNTIME_WAIT_OEM);
-#endif
-	// В обычном режиме плеер остаётся в BASE_SCENE_IDLE до получения первого CAN пакета
+	// In normal mode, scene stays in BASE_SCENE_IDLE until first OEM CAN packet.
 
 	g_last_tick_ms = HAL_GetTick();
-#if DEMO_MODE
-	g_last_theme_switch_ms = g_last_tick_ms;
-#endif
 
   /* USER CODE END 2 */
 
@@ -453,44 +363,13 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		uint32_t now = HAL_GetTick();
-		uint32_t dt = now - g_last_tick_ms;
-
-		// Защита от переполнения dt (если система была в sleep или произошел сбой)
-		if (dt > 1000u) {
-			dt = 16u;  // Максимальный разумный dt для анимаций (~60 FPS)
-		}
-
-		g_last_tick_ms = now;
-
-		led_runtime_strip_t *main_strip = board_dispatch_get_main_strip();
-
-		// Запускаем CAN протокол только после первого OEM пакета
-		uint8_t oem_received = can_ambient_oem_received();
-		if (oem_received && !g_can_protocol_started) {
-			g_can_protocol_started = 1;
-			g_can_protocol_start_ms = now;
-		}
-		if (oem_received) {
-			// Обновляем роль master/slave (discovery и failover)
-			can_ambient_update_role(now);
-		}
-
-		if (runtime_flow_dispatch_state(&g_runtime_flow, main_strip, dt, oem_received)) {
-			continue;
-		}
-
-		if (runtime_flow_handle_active_state(&g_runtime_flow, main_strip, now, dt, oem_received)) {
-			continue;
-		}
-
-		/* Non-blocking delay: use WFI for power saving when loop runs faster than 1ms.
-		 * WFI wakes CPU on any interrupt (CAN, SysTick, DMA, etc.) */
-		if (dt == 0u) {
+		app_runtime_tick(&g_runtime_flow,
+						 &g_last_tick_ms,
+						 &g_can_protocol_started,
+						 &g_can_protocol_start_ms);
+		if (app_runtime_should_idle_wfi()) {
 			__WFI();
 		}
-
-		HAL_Delay(1);
 
 #if AMB_ENABLE_WATCHDOG
 		/* Feed watchdog to prevent reset */
@@ -577,7 +456,7 @@ static void MX_FDCAN1_Init(void)
   hfdcan1.Init.DataSyncJumpWidth = 1;
   hfdcan1.Init.DataTimeSeg1 = 1;
   hfdcan1.Init.DataTimeSeg2 = 1;
-  hfdcan1.Init.StdFiltersNbr = 8;
+  hfdcan1.Init.StdFiltersNbr = 24;
   hfdcan1.Init.ExtFiltersNbr = 0;
   hfdcan1.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
   if (HAL_FDCAN_Init(&hfdcan1) != HAL_OK)
@@ -873,23 +752,15 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
     FDCAN_RxHeaderTypeDef rx_header;
     uint8_t rx_data[8];
-    uint8_t max_messages = 10;  /* Лимит обработки за один вызов для защиты от бесконечного цикла */
+    uint8_t max_messages = 10;  /* Processing budget per callback to avoid long ISR loops. */
 
     if ((RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) != 0) {
         while (max_messages-- > 0 &&
                HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &rx_header, rx_data) == HAL_OK) {
             uint8_t dlc = rx_header.DataLength;
-#if AMB_DEBUG_BSM_RX_PULSE
-            if ((rx_header.Identifier == CAN_BSM_ID) ||
-                ((rx_header.Identifier & 0x7FFu) == CAN_BSM_ID)) {
-                g_dbg_bsm_rx_until_ms = HAL_GetTick() + 260u;
-            } else if (rx_header.Identifier != CAN_OEM_ID) {
-                g_dbg_non_oem_rx_id = rx_header.Identifier;
-                g_dbg_non_oem_rx_until_ms = HAL_GetTick() + 180u;
-            }
-#endif
-            if (dlc <= 8) {  /* Валидация длины данных */
-                can_ambient_process_rx(rx_header.Identifier, rx_data, dlc);
+            runtime_debug_hooks_note_can_rx(rx_header.Identifier, HAL_GetTick());
+            if (dlc <= 8) {  /* Validate payload length. */
+                (void)runtime_event_queue_push_isr(rx_header.Identifier, rx_data, dlc);
             }
         }
     }

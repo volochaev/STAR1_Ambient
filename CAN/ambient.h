@@ -32,7 +32,6 @@
 #include "ambient_state.h"
 #include "types.h"
 #include "base_scene.h"
-#include "themes.h"
 #include "driver.h"
 #include "runtime_state.h"
 
@@ -52,35 +51,62 @@ extern "C" {
 /* Seat heating status */
 #define CAN_SEAT_FRONT_ID 0x369U
 #define CAN_SEAT_REAR_ID  0x350U
+/* Central locking / unlock requests */
+#define CAN_EIS_A2_ID     0x12DU
+/* Interior lighting request */
+#define CAN_ILM_RQ_ID     0x141U
+/* Front SAM power supply state (ignition KL15/KL15R) */
+#define CAN_SAM_F_A1_ID   0x006U
+/* Light module state (night security illumination active) */
+#define CAN_LM_A1_ID      0x069U
+/* Light module exterior/entry lamp requests */
+#define CAN_LM_A4_ID      0x02FU
+/* Door latch states */
+#define CAN_DOOR_FL_A1_ID 0x002U
+#define CAN_DOOR_FR_A1_ID 0x004U
+#define CAN_DOOR_R_A1_ID  0x007U
 /* BSM warning request from vehicle */
 #define CAN_BSM_ID       0x17EU
+/* Day/night fallback from HU via TGW */
+#define CAN_TGW_A8_ID    0x2E9U
+/* Parking warn elements */
+#define CAN_PTS_A1_ID    0x2EEU
+/* Reverse signals */
+#define CAN_RVC_A2_ID    0x2C3U
+#define CAN_CHASSIS_R2_ID 0x10CU
+/* Modern ambient protocol: request from HU, unified status to body/consumers */
+#define CAN_HU_AMB_RQ_ID 0x463U
+#define CAN_BODY_AMB_STAT_ID 0x12BU
+/* Sun intensity */
+#define CAN_HVAC_A1_ID   0x231U
 
-/* Master broadcast ID (master → slaves) */
-/* Также используется для discovery, sync и ext пакетов (различаются по типу в data[0]) */
+/* Master broadcast ID (master -> slaves).
+ * Shared ID for discovery/sync/master subtypes (decoded via data[0] marker). */
 #define CAN_MASTER_ID    0x353U
 
-/* Discovery packet ID (для автоматического определения master) */
-#define CAN_DISCOVERY_ID 0x353U  /* тот же ID, но другой формат */
+/* Discovery packet ID (same raw ID, different payload format). */
+#define CAN_DISCOVERY_ID 0x353U
 
-/* Sync packet ID (heartbeat от master) - объединен с CAN_MASTER_ID */
-#define CAN_SYNC_ID      0x353U  /* тот же ID, различается по типу пакета */
+/* Sync packet ID (master heartbeat; same raw ID, different subtype marker). */
+#define CAN_SYNC_ID      0x353U
 
-/* Packet type markers для CAN_MASTER_ID (0x353) */
+/* Packet subtype markers for CAN_MASTER_ID (0x353). */
 #define PKT_TYPE_DISCOVERY  0x00  /* Discovery: data[0] = board_type (0-5) */
 #define PKT_TYPE_MASTER     0x10  /* Master: data[0] = 0x10 | flags, data[1-4] = state */
-#define PKT_TYPE_SYNC       0x20  /* Sync: data[0] = 0x20 | bank_id, data[1] = theme_index */
-#define PKT_TYPE_MASK       0xF0  /* Маска для типа пакета (старшие 4 бита) */
+#define PKT_TYPE_SYNC       0x20  /* Sync: data[0] = 0x20 | color_id, data[1] = brightness_raw */
+#define PKT_TYPE_MASK       0xF0  /* Packet subtype mask (high nibble). */
 
 /* Master flags (PKT_TYPE_MASTER) */
 #define MASTER_FLAG_NIGHT   0x01u
 
-/* Board types для discovery */
+/* Board types for discovery/election. */
 #define BOARD_TYPE_FL        0   /* Front-Left door */
 #define BOARD_TYPE_FR        1   /* Front-Right door */
 #define BOARD_TYPE_RL        2   /* Rear-Left door */
 #define BOARD_TYPE_RR        3   /* Rear-Right door */
 #define BOARD_TYPE_DASHBOARD 4   /* Dashboard/Instrument Panel */
-#define BOARD_TYPE_REAR      5   /* Rear ambient (задняя часть салона) */
+#define BOARD_TYPE_REAR      5   /* Rear ambient board. */
+#define BOARD_TYPE_ANY       255 /* Aggregate all door sources (master-wide gate/events) */
 
 /* Board type comes from board_selected.h (active board profile), fallback = FL */
 #ifndef BOARD_TYPE
@@ -88,28 +114,28 @@ extern "C" {
 #endif
 
 /* Master/Slave mode configuration */
-/* Можно определить через define или через GPIO */
-/* Если не определено, будет использоваться автоматическое определение */
+/* Can be forced at compile time, otherwise role is auto-detected. */
 #ifndef AMB_ROLE_MASTER
 #define AMB_ROLE_MASTER  -1  /* -1 = auto-detect, 0 = slave, 1 = master */
 #endif
 
-/* Timeouts для failover */
+/* Failover timeout. */
 #define MASTER_HEARTBEAT_TIMEOUT_MS  1800u  /* failover timeout */
 
 typedef enum {
-    CAN_SLEEP_REASON_NONE = 0u,
-    CAN_SLEEP_REASON_IDLE_TIMEOUT = 1u,
-    CAN_SLEEP_REASON_API_ENTER = 2u,
+    CAN_SLEEP_REASON_NONE = 0u,          /* No sleep request reason set. */
+    CAN_SLEEP_REASON_IDLE_TIMEOUT = 1u,  /* Idle timeout policy requested sleep. */
+    CAN_SLEEP_REASON_API_ENTER = 2u,     /* Explicit API call requested sleep. */
+    CAN_SLEEP_REASON_LOCK_EVENT = 3u,    /* Lock event path requested sleep. */
 } can_sleep_reason_t;
 
 typedef enum {
-    CAN_WAKE_REASON_NONE = 0u,
-    CAN_WAKE_REASON_CAN_RX = 1u,
-    CAN_WAKE_REASON_STOP_EXTI_CAN_RX = 2u,
-    CAN_WAKE_REASON_STOP_EXTI_TRANSCEIVER = 3u,
-    CAN_WAKE_REASON_MANUAL_AWAKE = 4u,
-    CAN_WAKE_REASON_EXIT_SLEEP = 5u,
+    CAN_WAKE_REASON_NONE = 0u,                  /* No wake source recorded. */
+    CAN_WAKE_REASON_CAN_RX = 1u,                /* Activity wake from normal CAN RX path. */
+    CAN_WAKE_REASON_STOP_EXTI_CAN_RX = 2u,      /* STOP wake via CAN RX EXTI line. */
+    CAN_WAKE_REASON_STOP_EXTI_TRANSCEIVER = 3u, /* STOP wake via transceiver wake EXTI line. */
+    CAN_WAKE_REASON_MANUAL_AWAKE = 4u,          /* Manual wake request via API. */
+    CAN_WAKE_REASON_EXIT_SLEEP = 5u,            /* Wake as part of sleep-exit sequence. */
 } can_wake_reason_t;
 
 typedef struct {
@@ -123,6 +149,40 @@ typedef struct {
     uint32_t last_wake_ms;
     uint32_t last_idle_ms_at_request;
 } can_power_diag_t;
+
+typedef struct {
+    uint8_t conflict_active;
+    uint32_t conflict_count;
+    uint8_t last_bus_status_valid;
+    uint8_t last_bus_color;
+    uint8_t last_bus_brightness;
+    uint8_t last_bus_effect;
+    uint32_t last_bus_timestamp_ms;
+    uint32_t rq_invalid_len_count;
+    uint32_t rq_invalid_range_count;
+    uint32_t stat_invalid_len_count;
+    uint32_t stat_invalid_range_count;
+    uint32_t oem_invalid_range_count;
+    uint32_t oem_clamped_brightness_count;
+} can_modern_diag_t;
+
+typedef struct {
+    uint32_t rq_invalid_len_count;
+    uint32_t rq_invalid_range_count;
+    uint32_t stat_invalid_len_count;
+    uint32_t stat_invalid_range_count;
+    uint32_t oem_invalid_range_count;
+    uint32_t oem_clamped_brightness_count;
+} can_ingress_diag_t;
+
+typedef enum {
+    CAN_INGRESS_COUNTER_RQ_INVALID_LEN = 0u,
+    CAN_INGRESS_COUNTER_RQ_INVALID_RANGE = 1u,
+    CAN_INGRESS_COUNTER_STAT_INVALID_LEN = 2u,
+    CAN_INGRESS_COUNTER_STAT_INVALID_RANGE = 3u,
+    CAN_INGRESS_COUNTER_OEM_INVALID_RANGE = 4u,
+    CAN_INGRESS_COUNTER_OEM_CLAMPED_BRIGHTNESS = 5u,
+} can_ingress_counter_id_t;
 
 /**
  * @brief Initialize CAN ambient system
@@ -167,6 +227,7 @@ void can_ambient_send_sync_packet(void);
  * @details Periodic announce packet for board presence and role detection.
  */
 void can_ambient_send_discovery_packet(void);
+void can_ambient_send_modern_status_packet(void);
 
 /**
  * @brief Check if this board is master
@@ -194,23 +255,35 @@ void can_ambient_reset_oem_received(void);
  * @details Parsed from IC_A8 (0x325): SurrIll_Rq and NS_IllDur_Rq.
  */
 uint8_t can_ambient_nsi_active(void);
+uint8_t can_ambient_handle_request_active(void);
+uint8_t can_ambient_is_ignition_on(void);
 can_bsm_state_t can_ambient_get_bsm_state(void);
 motion_profile_t can_ambient_get_motion_profile(void);
 void can_ambient_set_motion_profile(motion_profile_t profile);
 int8_t can_ambient_consume_hvac_temp_trend(void);
 int8_t can_ambient_consume_hvac_temp_trend_for_board(void);
+uint8_t can_ambient_consume_unlock_event(void);
+uint8_t can_ambient_consume_lock_event(void);
+void can_ambient_clear_lock_event_pending(void);
+uint8_t can_ambient_is_lock_source_recent(void);
+uint8_t can_ambient_consume_door_open_event_for_board(void);
+uint8_t can_ambient_is_any_door_open_for_board(void);
 float can_ambient_get_hvac_split_bias_for_board(void);
 float can_ambient_get_hvac_fan_level(void);
 uint8_t can_ambient_is_night_mode(void);
 float can_ambient_get_seat_heat_level_for_board(void);
 float can_ambient_get_bank_character_speed_scale(void);
+float can_ambient_get_ilm_dim_scale_for_board(void);
+float can_ambient_get_sun_gain_for_board(void);
+can_parking_warn_state_t can_ambient_get_parking_warn_state_for_board(void);
+uint8_t can_ambient_is_reverse_active(void);
 
 /**
  * @brief Update master/slave role (periodic call from main loop)
  * @param now_ms Current time in milliseconds
  * @details Handles discovery, failover, and automatic role assignment.
- *          Saves settings to flash if changed. Передавайте вызовы после
- *          получения первого OEM пакета, чтобы не будить шину раньше времени.
+ *          Saves settings to flash if changed. Call after first OEM packet
+ *          to avoid waking bus traffic too early during startup.
  */
 void can_ambient_update_role(uint32_t now_ms);
 
@@ -220,9 +293,14 @@ void can_ambient_update_role(uint32_t now_ms);
  * @details Used for failover detection by slaves.
  */
 uint32_t can_ambient_get_last_master_heartbeat_ms(void);
+void can_ambient_get_modern_diag(can_modern_diag_t *out);
+void can_ambient_reset_modern_diag(void);
+void can_ambient_get_ingress_diag(can_ingress_diag_t *out);
+void can_ambient_reset_ingress_diag(void);
+uint32_t can_ambient_get_ingress_counter(can_ingress_counter_id_t counter_id);
 
 /* ========== SLEEP MODE API ========== */
-#include "features.h"
+#include "ambient_config.h"
 
 #if AMB_ENABLE_SLEEP_MODE
 
@@ -242,6 +320,7 @@ uint8_t can_ambient_should_sleep(void);
  * @brief Clear sleep request flag
  */
 void can_ambient_clear_sleep_request(void);
+void can_ambient_request_sleep_lock(void);
 
 /**
  * @brief Mark system as awake (reset activity timer)

@@ -1,7 +1,11 @@
-
+/**
+ * @file frame_utils.c
+ * @brief Low-level frame buffer helpers for RGB strip operations.
+ */
 #include "frame_utils.h"
 #include <string.h>
 
+/* Clamp float into normalized [0..1] range. */
 static float clamp01f(float x)
 {
     if (x < 0.0f) return 0.0f;
@@ -9,14 +13,17 @@ static float clamp01f(float x)
     return x;
 }
 
+/* Convert pixel index to RGB byte offset (3 bytes per pixel). */
 static inline uint32_t px3(uint16_t i) { return (uint32_t)i * 3u; }
 
+/* Clear full RGB frame to black. */
 void frame_clear(ws2812_t *ws)
 {
     if (!ws || !ws->rgb) return;
     memset(ws->rgb, 0, (size_t)ws->led_count * BYTES_PER_LED);
 }
 
+/* Fill full frame with constant RGB color. */
 void frame_fill(ws2812_t *ws, uint8_t r, uint8_t g, uint8_t b)
 {
     if (!ws || !ws->rgb) return;

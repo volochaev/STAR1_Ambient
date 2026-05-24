@@ -33,7 +33,7 @@ __ALIGNED(4) static uint32_t dashboard_ac_vents_dma[BOARD_DMA_BUF_LEN(DASHBOARD_
 static uint8_t dashboard_footwell_fb[DASHBOARD_FOOTWELL_LEDS * BYTES_PER_LED];
 __ALIGNED(4) static uint32_t dashboard_footwell_dma[BOARD_DMA_BUF_LEN(DASHBOARD_FOOTWELL_LEDS)];
 
-/* === Экземпляры ws2812_t (фактически физические линии/zones) ========= */
+/* WS2812 driver instances (physical board lines/zones). */
 
 ws2812_t g_dashboard_strip;
 ws2812_t g_dashboard_center;
@@ -41,13 +41,13 @@ ws2812_t g_dashboard_ac_vents;
 ws2812_t g_dashboard_footwell;
 
 static const board_led_line_t g_dashboard_lines[] = {
-    { &g_dashboard_strip, TIM_CHANNEL_1, dashboard_strip_fb, dashboard_strip_dma, DASHBOARD_STRIP_LEDS, 1u },
-    { &g_dashboard_center, TIM_CHANNEL_2, dashboard_center_fb, dashboard_center_dma, DASHBOARD_CENTER_LEDS, 1u },
-    { &g_dashboard_ac_vents, TIM_CHANNEL_3, dashboard_ac_vents_fb, dashboard_ac_vents_dma, DASHBOARD_AC_VENTS_LEDS, 1u },
-    { &g_dashboard_footwell, TIM_CHANNEL_4, dashboard_footwell_fb, dashboard_footwell_dma, DASHBOARD_FOOTWELL_LEDS, 1u },
+    { &g_dashboard_strip, TIM_CHANNEL_1, dashboard_strip_fb, dashboard_strip_dma, DASHBOARD_STRIP_LEDS, DASHBOARD_STRIP_ORDER, 1u },
+    { &g_dashboard_center, TIM_CHANNEL_2, dashboard_center_fb, dashboard_center_dma, DASHBOARD_CENTER_LEDS, DASHBOARD_CENTER_ORDER, 1u },
+    { &g_dashboard_ac_vents, TIM_CHANNEL_3, dashboard_ac_vents_fb, dashboard_ac_vents_dma, DASHBOARD_AC_VENTS_LEDS, DASHBOARD_AC_VENTS_ORDER, 1u },
+    { &g_dashboard_footwell, TIM_CHANNEL_4, dashboard_footwell_fb, dashboard_footwell_dma, DASHBOARD_FOOTWELL_LEDS, DASHBOARD_FOOTWELL_ORDER, 1u },
 };
 
-/* === Инициализация ==================================================== */
+/* Initialization. */
 
 void board_dashboard_led_init(void)
 {
@@ -57,7 +57,7 @@ void board_dashboard_led_init(void)
                                  1u);
 }
 
-/* === Рендер всех линий борда ========================================= */
+/* Render all board lines. */
 
 void board_dashboard_led_render_all(void)
 {

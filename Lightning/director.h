@@ -10,14 +10,13 @@ extern "C" {
 
 typedef struct {
     director_runtime_t runtime;
-    theme_id_t           pending_theme;
-    uint8_t                 has_pending_theme;
     uint8_t                 welcome_scene_armed;
-    uint32_t                last_fast_bank_switch_ms;
     base_scene_stage_t          last_stage;
 } director_t;
 
+/** Initialize director runtime and transient orchestration flags. */
 void director_init(director_t *director);
+/** Update director state and apply stage-level orchestration decisions. */
 void director_update(director_t *director,
                          led_runtime_strip_t *ws,
                          base_scene_t *pl,

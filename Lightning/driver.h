@@ -65,6 +65,7 @@ typedef struct {
     float              global_brightness;
     uint8_t            br_forced;
     float              br_forced_value;
+    uint8_t            color_order;
 } ws2812_t;
 
 typedef ws2812_t led_zone_t;
@@ -78,12 +79,16 @@ typedef ws2812_t led_zone_t;
 #define WS_CH4   (1u << 3)
 #define WS_CH_ALL (WS_CH1 | WS_CH2 | WS_CH3 | WS_CH4)
 
+#define WS_COLOR_ORDER_RGB 0u
+#define WS_COLOR_ORDER_GRB 1u
+
 void ws_init(ws2812_t        *ws,
              TIM_HandleTypeDef *htim,
              uint32_t         tim_channel,
              uint8_t         *framebuffer,
              uint32_t        *dma_buf,
              uint16_t         led_count);
+void ws_set_color_order(ws2812_t *ws, uint8_t color_order);
 
 void ws_set_global_brightness(ws2812_t *ws, float br);
 void ws_force_brightness(ws2812_t *ws, float br);

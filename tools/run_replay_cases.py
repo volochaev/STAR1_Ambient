@@ -77,6 +77,16 @@ def main() -> int:
                 "2",
             ],
         ),
+        ReplayCase(
+            name="Dynamic scale hard-cap",
+            logfile=CASES_DIR / "case_wait_oem_gate.log",
+            args=[
+                "--profile",
+                "bench",
+                "--require-oem",
+                "--verify-dynamic-scale-cap",
+            ],
+        ),
     ]
 
     failed = 0

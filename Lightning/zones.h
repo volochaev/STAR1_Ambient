@@ -26,8 +26,6 @@
 
 #include "types.h"
 #include "led_runtime.h"
-#include "palette.h"
-#include "themes.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,15 +35,21 @@ typedef struct {
     led_runtime_strip_t *strip;
     uint16_t  first;
     uint16_t  count;
+    uint8_t   color_order;
 } zone_map_t;
 
 /* Implemented in Boards/board_zone_map.c */
 extern const zone_map_t g_zone_map[ZONE_MAX];
 
+/** Render base active scene to all mapped zones. */
 void zones_apply_scene(const base_scene_t *pl);
+/** Render intro layer contribution for all zones. */
 void zones_apply_intro(const base_scene_t *pl, float t_norm);
+/** Render outro layer contribution for all zones. */
 void zones_apply_outro(const base_scene_t *pl, float t_norm);
+/** Render bridge/crossfade layer between intro and active scene. */
 void zones_apply_bridge(const base_scene_t *pl, float t_norm);
+/** Apply interrupt/event overlays on top of current frame. */
 void zones_apply_interrupt_overlay(uint32_t now_ms);
 
 #ifdef __cplusplus

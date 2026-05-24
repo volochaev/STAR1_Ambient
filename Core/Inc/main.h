@@ -88,12 +88,6 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN Private defines */
 
-/* Демо режим: автоматическое переключение тем каждые 20 секунд (только для master) */
-/* Установите в 0 для продакшн режима (управление только через CAN) */
-#ifndef DEMO_MODE
-#define DEMO_MODE  0  /* 0 = production mode, 1 = demo mode */
-#endif
-
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

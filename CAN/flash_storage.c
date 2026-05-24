@@ -21,7 +21,9 @@
 #include "stm32g4xx_hal.h"
 #include <string.h>
 
-/* Простая CRC32 реализация (полином 0xEDB88320) */
+#define FLASH_MODERN_FMT_MAGIC 0x4D4F4452U /* "MODR" */
+
+/* Simple CRC32 implementation (polynomial 0xEDB88320). */
 static uint32_t crc32_calculate(const uint8_t *data, uint32_t len)
 {
     uint32_t crc = 0xFFFFFFFFU;
@@ -41,7 +43,7 @@ static uint32_t crc32_calculate(const uint8_t *data, uint32_t len)
     return ~crc;
 }
 
-/* Вычисляем CRC с исключением поля crc (обнуляем его перед подсчетом) */
+/* Compute CRC while excluding the crc field itself (forced to zero). */
 static uint32_t flash_storage_calc_crc(const flash_storage_data_t *in)
 {
     flash_storage_data_t tmp;
@@ -50,41 +52,59 @@ static uint32_t flash_storage_calc_crc(const flash_storage_data_t *in)
     return crc32_calculate((const uint8_t *)&tmp, sizeof(tmp));
 }
 
-int flash_storage_load(can_state_t *state)
+int flash_storage_load_extended(can_state_t *state, flash_modern_state_t *modern_state)
 {
-    if (!state) return -1;
+    if (!state && !modern_state) return -1;
     
-    /* Читаем данные из Flash */
+    /* Read persisted payload from Flash page. */
     const flash_storage_data_t *flash_data = (const flash_storage_data_t *)FLASH_STORAGE_BASE_ADDR;
     flash_storage_data_t data;
     memcpy(&data, flash_data, sizeof(data));
     
-    /* Проверяем magic number */
+    /* Validate magic number. */
     if (data.magic != FLASH_STORAGE_MAGIC) {
-        /* Данные отсутствуют или невалидны */
+        /* Data is absent or invalid. */
         return -1;
     }
     
-    /* Проверяем CRC */
+    /* Validate CRC. */
     uint32_t calculated_crc = flash_storage_calc_crc(&data);
     
     if (calculated_crc != data.crc) {
-        /* CRC не совпадает - данные повреждены */
+        /* CRC mismatch means payload is corrupted. */
         return -1;
     }
     
-    /* Копируем валидные данные */
-    state->bank_id = data.bank_id;
-    state->theme_index = data.theme_index;
-    state->last_oem_color = data.last_oem_color;
-    for (int i = 0; i < FLASH_OEM_BANK_COUNT; i++) {
-        state->oem_theme_indices[i] = data.oem_theme_indices[i];
+    /* Copy validated data to output structures. */
+    if (state) {
+        state->bank_id = data.bank_id;
+        state->oem_color = data.oem_color;
+        state->oem_brightness = (float)(data.oem_brightness_raw > 5u ? 5u : data.oem_brightness_raw) / 5.0f;
+        state->night_mode = (uint8_t)(data.night_mode ? 1u : 0u);
+    }
+
+    if (modern_state) {
+        uint32_t ext[3] = {0u, 0u, 0u};
+        memset(modern_state, 0, sizeof(*modern_state));
+        memcpy(ext, data.reserved2, sizeof(ext));
+        if (ext[0] == FLASH_MODERN_FMT_MAGIC) {
+            modern_state->valid = (uint8_t)(ext[1] & 0x01u);
+            modern_state->color_id = (uint8_t)((ext[1] >> 8) & 0xFFu);
+            modern_state->brightness_raw = (uint8_t)((ext[1] >> 16) & 0xFFu);
+            modern_state->effect_id = (uint8_t)((ext[1] >> 24) & 0xFFu);
+            modern_state->timestamp_ms = ext[2];
+        }
     }
     
     return 0;
 }
 
-int flash_storage_save(const can_state_t *state)
+int flash_storage_load(can_state_t *state)
+{
+    return flash_storage_load_extended(state, NULL);
+}
+
+int flash_storage_save_extended(const can_state_t *state, const flash_modern_state_t *modern_state)
 {
     if (!state) return -1;
     
@@ -92,31 +112,39 @@ int flash_storage_save(const can_state_t *state)
     FLASH_EraseInitTypeDef erase_init;
     uint32_t page_error = 0;
     
-    /* Подготавливаем данные для записи */
+    /* Prepare payload for write operation. */
     flash_storage_data_t data;
-    memset(&data, 0xFF, sizeof(data));  /* Заполняем 0xFF (пустое состояние Flash) */
+    memset(&data, 0xFF, sizeof(data));  /* Flash erased state is 0xFF. */
     
     data.magic = FLASH_STORAGE_MAGIC;
     data.bank_id = state->bank_id;
-    data.theme_index = state->theme_index;
-    data.last_oem_color = state->last_oem_color;
-    for (int i = 0; i < FLASH_OEM_BANK_COUNT; i++) {
-        data.oem_theme_indices[i] = state->oem_theme_indices[i];
+    data.oem_color = state->oem_color;
+    data.oem_brightness_raw = (uint8_t)(state->oem_brightness * 5.0f + 0.5f);
+    if (data.oem_brightness_raw > 5u) data.oem_brightness_raw = 5u;
+    data.night_mode = (uint8_t)(state->night_mode ? 1u : 0u);
+
+    if (modern_state) {
+        data.reserved2[0] = FLASH_MODERN_FMT_MAGIC;
+        data.reserved2[1] = ((uint32_t)(modern_state->valid & 0x01u)) |
+                            (((uint32_t)modern_state->color_id) << 8) |
+                            (((uint32_t)modern_state->brightness_raw) << 16) |
+                            (((uint32_t)modern_state->effect_id) << 24);
+        data.reserved2[2] = modern_state->timestamp_ms;
     }
     
-    /* Вычисляем CRC (без поля CRC) */
+    /* Compute CRC (crc field excluded). */
     data.crc = flash_storage_calc_crc(&data);
     
-    /* Защита от прерываний во время операций с Flash */
+    /* Keep Flash operation atomic with IRQs disabled. */
     __disable_irq();
     
-    /* Разблокируем Flash */
+    /* Unlock Flash. */
     HAL_FLASH_Unlock();
     
-    /* Стираем страницу */
+    /* Erase last Flash page. */
     erase_init.TypeErase = FLASH_TYPEERASE_PAGES;
     erase_init.Banks = FLASH_BANK_1;
-    erase_init.Page = FLASH_PAGE_NB - 1;  /* Последняя страница */
+    erase_init.Page = FLASH_PAGE_NB - 1;  /* Last page. */
     erase_init.NbPages = 1;
     
     status = HAL_FLASHEx_Erase(&erase_init, &page_error);
@@ -126,9 +154,9 @@ int flash_storage_save(const can_state_t *state)
         return -1;
     }
     
-    /* Записываем данные по 8 байт (double word) */
+    /* Program payload in 8-byte double words. */
     uint32_t addr = FLASH_STORAGE_BASE_ADDR;
-    uint32_t words = (sizeof(flash_storage_data_t) + 7) / 8;  /* Округляем вверх до 8 байт */
+    uint32_t words = (sizeof(flash_storage_data_t) + 7) / 8;  /* Round up to 8-byte granularity. */
     
     for (uint32_t i = 0; i < words; i++) {
         uint64_t word_data = 0;
@@ -148,13 +176,13 @@ int flash_storage_save(const can_state_t *state)
         addr += 8;
     }
     
-    /* Блокируем Flash */
+    /* Lock Flash. */
     HAL_FLASH_Lock();
     
-    /* Восстанавливаем прерывания */
+    /* Re-enable IRQs. */
     __enable_irq();
     
-    /* Проверяем записанные данные */
+    /* Verify written payload. */
     flash_storage_data_t written;
     memcpy(&written, (const void *)FLASH_STORAGE_BASE_ADDR, sizeof(written));
     if (written.magic != FLASH_STORAGE_MAGIC || written.crc != flash_storage_calc_crc(&written)) {
@@ -164,27 +192,32 @@ int flash_storage_save(const can_state_t *state)
     return 0;
 }
 
+int flash_storage_save(const can_state_t *state)
+{
+    return flash_storage_save_extended(state, NULL);
+}
+
 int flash_storage_erase(void)
 {
     HAL_StatusTypeDef status;
     FLASH_EraseInitTypeDef erase_init;
     uint32_t page_error = 0;
     
-    /* Защита от прерываний во время операций с Flash */
+    /* Keep erase operation atomic with IRQs disabled. */
     __disable_irq();
     
     HAL_FLASH_Unlock();
     
     erase_init.TypeErase = FLASH_TYPEERASE_PAGES;
     erase_init.Banks = FLASH_BANK_1;
-    erase_init.Page = FLASH_PAGE_NB - 1;  /* Последняя страница */
+    erase_init.Page = FLASH_PAGE_NB - 1;  /* Last page. */
     erase_init.NbPages = 1;
     
     status = HAL_FLASHEx_Erase(&erase_init, &page_error);
     
     HAL_FLASH_Lock();
     
-    /* Восстанавливаем прерывания */
+    /* Re-enable IRQs. */
     __enable_irq();
     
     return (status == HAL_OK) ? 0 : -1;

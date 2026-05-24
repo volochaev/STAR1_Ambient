@@ -5,13 +5,15 @@
 #include "ambient.h"
 #include "board_dispatch.h"
 #include "event_layer.h"
-#include "features.h"
+#include "ambient_config.h"
 #include "handle_pwm.h"
 #include "led_runtime.h"
 #include "runtime_can.h"
+#include "runtime_events.h"
 #include "runtime_render.h"
+#include "runtime_debug_hooks.h"
+#include "runtime_state_machine.h"
 #include "runtime_stop.h"
-#include "themes.h"
 #include "zones.h"
 
 extern const zone_map_t g_zone_map[ZONE_MAX];
@@ -24,7 +26,7 @@ static runtime_mode_t flow_state(const runtime_flow_ctx_t *ctx)
 void runtime_flow_set_state(runtime_flow_ctx_t *ctx, runtime_mode_t s)
 {
     if (!ctx || !ctx->runtime_state) return;
-    *ctx->runtime_state = s;
+    (void)runtime_state_machine_transition(ctx->runtime_state, s);
 }
 
 static float runtime_ease01(float t)
@@ -34,7 +36,7 @@ static float runtime_ease01(float t)
     return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
 }
 
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+#if AMB_ENABLE_SLEEP_MODE
 static uint32_t runtime_sleep_cancel_idle_threshold_ms(void)
 {
     uint32_t div = (AMB_SLEEP_CANCEL_IDLE_DIV == 0u) ? 1u : AMB_SLEEP_CANCEL_IDLE_DIV;
@@ -42,45 +44,61 @@ static uint32_t runtime_sleep_cancel_idle_threshold_ms(void)
 }
 #endif
 
-#if !DEMO_MODE
-static void runtime_activate_from_oem(runtime_flow_ctx_t *ctx, led_runtime_strip_t *main_strip)
+static void runtime_activate_from_oem(runtime_flow_ctx_t *ctx,
+                                      led_runtime_strip_t *main_strip,
+                                      uint8_t wake_recover,
+                                      uint8_t door_gated_start)
 {
     runtime_inputs_t inputs;
     oem_color_id_t oem_col;
-    uint8_t theme_idx;
-    const theme_bank_t *bank;
 
-    if (!ctx || !ctx->oem_color || !ctx->current_theme || !ctx->base_scene) return;
+    if (!ctx || !ctx->oem_color || !ctx->base_scene) return;
 
     can_ambient_fill_runtime_inputs(&inputs);
     oem_col = (oem_color_id_t)inputs.can_state.oem_color;
     if (oem_col >= OEM_COLOR_MAX) {
         oem_col = OEM_COLOR_AMBER;
     }
-    theme_idx = inputs.can_state.oem_theme_indices[oem_col];
-
     *ctx->oem_color = oem_col;
-    bank = theme_get_bank(oem_col);
-    if (bank && bank->count > 0) {
-        if (theme_idx == 0xFF || theme_idx >= bank->count) {
-            theme_idx = 0;
-        }
-        *ctx->current_theme = bank->themes[theme_idx];
-    } else {
-        *ctx->current_theme = theme_default_for_oem(oem_col);
+    /* Reset director transient runtime (pending-theme / armed events) on each WAIT_OEM activation. */
+    if (ctx->director) {
+        director_init(ctx->director);
     }
-
-    base_scene_init(ctx->base_scene, *ctx->current_theme);
+    /* Drop stale event overlays/holds from previous active session before fresh start. */
+    event_layer_init();
+    base_scene_init(ctx->base_scene);
     if (main_strip) {
         runtime_render_push_black_frame();
+#if AMB_DISABLE_WELCOME_INTRO
+        (void)wake_recover;
+#if AMB_ENABLE_START_GATE_DOOR_OPEN
+        if (door_gated_start) {
+            /* For first activation via door-gate after sleep, force intro animation
+             * even when global intro is disabled. */
+            base_scene_start_intro(main_strip, ctx->base_scene);
+        } else {
+            base_scene_set_active(ctx->base_scene);
+        }
+#else
+        base_scene_set_active(ctx->base_scene);
+#endif
+#else
+#if AMB_ENABLE_UNLOCK_WELCOME_SIGNATURE
+        if (wake_recover) {
+            base_scene_set_active(ctx->base_scene);
+        } else {
+            base_scene_start_intro(main_strip, ctx->base_scene);
+        }
+#else
         base_scene_start_intro(main_strip, ctx->base_scene);
+#endif
+#endif
     }
 
     runtime_flow_set_state(ctx, RUNTIME_ACTIVE);
 }
-#endif
 
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+#if AMB_ENABLE_SLEEP_MODE
 static void runtime_sleep_cancel(runtime_flow_ctx_t *ctx, led_runtime_strip_t *main_strip)
 {
     if (!ctx || !ctx->sleep_fade_active) return;
@@ -90,10 +108,18 @@ static void runtime_sleep_cancel(runtime_flow_ctx_t *ctx, led_runtime_strip_t *m
     if (main_strip) {
         led_runtime_release_brightness(main_strip);
     }
+#if AMB_ENABLE_LOCK_GOODBYE_EVENT
+    runtime_events_clear_lock_sleep_forced();
+#endif
 }
 
 static uint8_t runtime_sleep_outro_cancel_requested(void)
 {
+#if AMB_ENABLE_LOCK_GOODBYE_EVENT
+    if (runtime_events_lock_sleep_forced()) {
+        return 0u;
+    }
+#endif
     return (uint8_t)(can_ambient_get_idle_time_ms() < runtime_sleep_cancel_idle_threshold_ms());
 }
 
@@ -158,11 +184,11 @@ static void runtime_sleep_finish_handle_fade(runtime_flow_ctx_t *ctx)
     handle_pwm_prepare_stop();
 }
 
-static void runtime_sleep_enter_stop_and_recover(runtime_flow_ctx_t *ctx)
+static uint8_t runtime_sleep_enter_stop_and_recover(runtime_flow_ctx_t *ctx)
 {
     runtime_stop_hooks_t stop_hooks;
 
-    if (!ctx || !ctx->can_protocol_started || !ctx->can_protocol_start_ms) return;
+    if (!ctx || !ctx->can_protocol_started || !ctx->can_protocol_start_ms) return 0u;
 
     runtime_render_push_black_frame();
     can_ambient_enter_sleep();
@@ -195,6 +221,10 @@ static void runtime_sleep_enter_stop_and_recover(runtime_flow_ctx_t *ctx)
     *ctx->can_protocol_start_ms = 0u;
     can_ambient_reset_oem_received();
     runtime_flow_set_state(ctx, RUNTIME_WAKE_RECOVER);
+#if AMB_ENABLE_LOCK_GOODBYE_EVENT
+    runtime_events_clear_lock_sleep_forced();
+#endif
+    return 1u;
 }
 
 static uint8_t runtime_handle_sleep_state(runtime_flow_ctx_t *ctx, led_runtime_strip_t *main_strip, uint32_t now)
@@ -203,6 +233,27 @@ static uint8_t runtime_handle_sleep_state(runtime_flow_ctx_t *ctx, led_runtime_s
 
     if (!ctx || !ctx->sleep_fade_active || !ctx->sleep_fade_start_ms || !ctx->sleep_fade_start_brightness ||
         !ctx->base_scene) {
+        return 0u;
+    }
+
+#if AMB_ENABLE_LOCK_GOODBYE_EVENT
+    if (runtime_events_lock_sleep_forced()) {
+        uint8_t unlock_ev = can_ambient_consume_unlock_event();
+        uint8_t door_open = can_ambient_is_any_door_open_for_board();
+        if (unlock_ev || door_open) {
+            runtime_events_clear_lock_sleep_forced();
+            runtime_sleep_cancel(ctx, main_strip);
+            return 0u;
+        }
+    }
+#endif
+
+    /* Reverse should never trigger or continue sleep fade on bench/driving context.
+     * If reverse arrives during fade, immediately restore ACTIVE brightness path. */
+    if (can_ambient_is_reverse_active()) {
+        if (*ctx->sleep_fade_active) {
+            runtime_sleep_cancel(ctx, main_strip);
+        }
         return 0u;
     }
 
@@ -236,8 +287,11 @@ static uint8_t runtime_handle_sleep_state(runtime_flow_ctx_t *ctx, led_runtime_s
             led_runtime_release_brightness(main_strip);
         }
         runtime_sleep_finish_handle_fade(ctx);
-        runtime_sleep_enter_stop_and_recover(ctx);
-        return 1u;
+        if (runtime_sleep_enter_stop_and_recover(ctx)) {
+            return 1u;
+        }
+        runtime_flow_set_state(ctx, RUNTIME_ACTIVE);
+        return 0u;
     } else {
         float fade_progress = (float)fade_elapsed / (float)AMB_SLEEP_FADE_OUT_MS;
         float eased = runtime_ease01(fade_progress);
@@ -300,33 +354,18 @@ static void runtime_render_base_scene_and_zones(runtime_flow_ctx_t *ctx, uint32_
     event_layer_apply(now);
     zones_apply_interrupt_overlay(now);
     runtime_render_postprocess_frame(now);
-#if AMB_DEBUG_BSM_RX_PULSE
-    /* Bench diagnostics: force an obvious strip pulse to verify RX path timing. */
-    if (ctx->dbg_bsm_rx_until_ms && (now < *ctx->dbg_bsm_rx_until_ms)) {
-        const zone_map_t *zm = &g_zone_map[ZONE_STRIP];
-        if (zm && zm->strip && zm->count > 0u) {
-            uint16_t i;
-            for (i = 0u; i < zm->count; ++i) {
-                led_runtime_set_pixel_rgb(zm->strip, (uint16_t)(zm->first + i), 255u, 24u, 0u);
-            }
-        }
-    } else if (ctx->dbg_non_oem_rx_until_ms && ctx->dbg_non_oem_rx_id &&
-               (now < *ctx->dbg_non_oem_rx_until_ms)) {
-        const zone_map_t *zm = &g_zone_map[ZONE_STRIP];
-        uint8_t r = 96u, g = 0u, b = 255u;
-        if (*ctx->dbg_non_oem_rx_id == CAN_BSM_ID) {
-            r = 255u;
-            g = 0u;
-            b = 0u;
-        }
-        if (zm && zm->strip && zm->count > 0u) {
-            uint16_t i;
-            for (i = 0u; i < zm->count; ++i) {
-                led_runtime_set_pixel_rgb(zm->strip, (uint16_t)(zm->first + i), r, g, b);
+    {
+        uint8_t r, g, b;
+        if (runtime_debug_hooks_get_strip_overlay(now, &r, &g, &b)) {
+            const zone_map_t *zm = &g_zone_map[ZONE_STRIP];
+            if (zm && zm->strip && zm->count > 0u) {
+                uint16_t i;
+                for (i = 0u; i < zm->count; ++i) {
+                    led_runtime_set_pixel_rgb(zm->strip, (uint16_t)(zm->first + i), r, g, b);
+                }
             }
         }
     }
-#endif
     board_dispatch_led_render_all();
 }
 
@@ -335,8 +374,8 @@ static void runtime_update_handle_pwm(const runtime_flow_ctx_t *ctx, uint32_t no
     uint8_t handle_pwm_enable = 0u;
     uint8_t handle_pwm_pct = 100u;
 
-    if (can_ambient_nsi_active()) {
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+    if (can_ambient_handle_request_active()) {
+#if AMB_ENABLE_SLEEP_MODE
         if (ctx && ctx->sleep_fade_active &&
             !(can_ambient_is_sleeping() || (can_ambient_should_sleep() && !*ctx->sleep_fade_active))) {
             handle_pwm_enable = 1u;
@@ -365,52 +404,11 @@ static void runtime_update_handle_pwm(const runtime_flow_ctx_t *ctx, uint32_t no
     handle_pwm_tick(dt);
 }
 
-static void runtime_maybe_trigger_hvac_temp_event(uint32_t now)
-{
-#if AMB_ENABLE_HVAC_TEMP_EVENT_SCENE
-    static uint32_t s_last_hvac_event_ms = 0u;
-    int8_t trend = can_ambient_consume_hvac_temp_trend_for_board();
-    event_scene_t scene;
-    uint8_t warmer;
-    uint8_t burst = 0u;
-
-    if (trend == 0) return;
-    warmer = (trend > 0) ? 1u : 0u;
-    if (s_last_hvac_event_ms != 0u && (now - s_last_hvac_event_ms) <= AMB_HVAC_TEMP_EVENT_BURST_WINDOW_MS) {
-        burst = 1u;
-    }
-    s_last_hvac_event_ms = now;
-    if (warmer) {
-        event_scene_build_temp_delta(&scene,
-                                     1u,
-                                     AMB_HVAC_TEMP_WARM_R,
-                                     AMB_HVAC_TEMP_WARM_G,
-                                     AMB_HVAC_TEMP_WARM_B,
-                                     AMB_HVAC_TEMP_EVENT_HOLD_MS);
-    } else {
-        event_scene_build_temp_delta(&scene,
-                                     0u,
-                                     AMB_HVAC_TEMP_COOL_R,
-                                     AMB_HVAC_TEMP_COOL_G,
-                                     AMB_HVAC_TEMP_COOL_B,
-                                     AMB_HVAC_TEMP_EVENT_HOLD_MS);
-    }
-    if (burst && scene.strip_trail) {
-        scene.strip_trail_cycles = AMB_HVAC_TEMP_EVENT_BURST_CYCLES;
-    }
-    event_layer_note_climate_memory(warmer, now);
-    (void)event_layer_start(&scene, now);
-#else
-    (void)now;
-#endif
-}
-
 uint8_t runtime_flow_dispatch_state(runtime_flow_ctx_t *ctx,
                                     led_runtime_strip_t *main_strip,
                                     uint32_t dt,
                                     uint8_t oem_received)
 {
-#if !DEMO_MODE
     uint32_t now = HAL_GetTick();
 
     if (!ctx || !ctx->wait_oem_after_wake || !ctx->wait_oem_enter_ms) return 0u;
@@ -429,22 +427,92 @@ uint8_t runtime_flow_dispatch_state(runtime_flow_ctx_t *ctx,
         }
     /* fallthrough */
     case RUNTIME_WAIT_OEM:
-        if (oem_received) {
-            *ctx->wait_oem_after_wake = 0u;
-            *ctx->wait_oem_enter_ms = 0u;
-            runtime_activate_from_oem(ctx, main_strip);
-            return 0u;
+        {
+            uint8_t ignition_on = can_ambient_is_ignition_on();
+            /* KL15 has startup priority: allow ACTIVE transition even when OEM 0x325
+             * is not yet present/fresh. */
+            uint8_t startup_source_ready = (uint8_t)(oem_received || ignition_on);
+        if (startup_source_ready) {
+            uint8_t wake_recover = *ctx->wait_oem_after_wake;
+            uint8_t allow_start = 1u;
+            uint8_t door_gated_start = 0u;
+#if AMB_ENABLE_UNLOCK_WELCOME_SIGNATURE && AMB_ENABLE_START_GATE_DOOR_OPEN
+            uint8_t start_unlock_signature_direct = 0u;
+#endif
+#if AMB_ENABLE_START_GATE_DOOR_OPEN
+            if (ignition_on) {
+                allow_start = 1u;
+                door_gated_start = 0u;
+            } else {
+                allow_start = can_ambient_is_any_door_open_for_board();
+                door_gated_start = allow_start;
+            }
+#endif
+            if (allow_start) {
+#if AMB_ENABLE_START_GATE_DOOR_OPEN
+                /* This door-open edge was used as startup gate. Do not replay it again
+                 * as a separate door-open event in the first ACTIVE tick, otherwise it
+                 * immediately overrides welcome signature due to higher event priority. */
+                if (door_gated_start) {
+                    (void)can_ambient_consume_door_open_event_for_board();
+                }
+#endif
+#if AMB_ENABLE_UNLOCK_WELCOME_SIGNATURE
+                uint8_t unlock_trigger = 0u;
+#if AMB_ENABLE_START_GATE_DOOR_OPEN
+                /* Door-gated start means first visible activation happens on door-open.
+                 * Re-arm welcome signature here to preserve "first-open after sleep" accent. */
+                (void)wake_recover;
+                if (door_gated_start) {
+                    runtime_events_clear_unlock_signature_cooldown();
+                    /* Start unlock signature explicitly after ACTIVE transition, do not rely
+                     * on deferred arm-only path for first door-open after sleep. */
+#if AMB_ENABLE_UNLOCK_WELCOME_SIGNATURE && AMB_ENABLE_START_GATE_DOOR_OPEN
+                    start_unlock_signature_direct = 1u;
+#endif
+                }
+                unlock_trigger = 0u;
+#else
+#if AMB_ENABLE_UNLOCK_TRIGGER_WAKE_RECOVER
+                unlock_trigger = wake_recover;
+#endif
+#if AMB_ENABLE_UNLOCK_TRIGGER_EIS301
+                if (can_ambient_consume_unlock_event()) {
+                    unlock_trigger = 1u;
+                }
+#endif
+#endif
+                runtime_events_arm_unlock_signature(unlock_trigger, now);
+#endif
+                *ctx->wait_oem_after_wake = 0u;
+                *ctx->wait_oem_enter_ms = 0u;
+                /* Drop stale lock edge collected during WAIT_OEM gate; otherwise
+                 * first ACTIVE frame may fire false goodbye/sleep. */
+                can_ambient_clear_lock_event_pending();
+                runtime_activate_from_oem(ctx, main_strip, wake_recover, door_gated_start);
+#if AMB_ENABLE_UNLOCK_WELCOME_SIGNATURE && AMB_ENABLE_START_GATE_DOOR_OPEN
+                if (start_unlock_signature_direct) {
+                    event_scene_t scene;
+                    event_scene_build_unlock_signature(&scene);
+                    (void)event_layer_start(&scene, now);
+                }
+#endif
+                return 0u;
+            }
+        }
         }
 #if AMB_ENABLE_SLEEP_MODE
         if (*ctx->wait_oem_after_wake && *ctx->wait_oem_enter_ms != 0u) {
             uint32_t wait_ms = (now >= *ctx->wait_oem_enter_ms)
                                    ? (now - *ctx->wait_oem_enter_ms)
                                    : ((UINT32_MAX - *ctx->wait_oem_enter_ms) + now + 1u);
-            if (wait_ms >= AMB_WAIT_OEM_RESLEEP_MS) {
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
-                runtime_sleep_enter_stop_and_recover(ctx);
-                return 1u;
-#endif
+            /* Keep WAKE_RECOVER->WAIT_OEM resleep timer from kicking in while
+             * standalone handle request is active. This avoids cyclic
+             * STOP/wake loops with door closed. */
+            if (wait_ms >= AMB_WAIT_OEM_RESLEEP_MS && !can_ambient_handle_request_active()) {
+                if (runtime_sleep_enter_stop_and_recover(ctx)) {
+                    return 1u;
+                }
             }
         }
 #endif
@@ -452,7 +520,15 @@ uint8_t runtime_flow_dispatch_state(runtime_flow_ctx_t *ctx,
         if (main_strip) {
             led_runtime_release_brightness(main_strip);
         }
-        handle_pwm_set_enabled(0u);
+        /* Door-handle PWM is intentionally decoupled from strip ACTIVE and
+         * door-open gates: the OEM handle source owns its state. */
+        if (can_ambient_handle_request_active() &&
+            !can_ambient_is_sleeping()) {
+            handle_pwm_set_brightness_pct(100u);
+            handle_pwm_set_enabled(1u);
+        } else {
+            handle_pwm_set_enabled(0u);
+        }
         handle_pwm_tick(dt);
 #if AMB_ENABLE_WATCHDOG
         if (ctx->watchdog) {
@@ -479,13 +555,7 @@ uint8_t runtime_flow_dispatch_state(runtime_flow_ctx_t *ctx,
         __WFI();
         return 1u;
     }
-#else
-    (void)ctx;
-    (void)main_strip;
-    (void)dt;
-    (void)oem_received;
-    return 0u;
-#endif
+    return 1u;
 }
 
 uint8_t runtime_flow_handle_active_state(runtime_flow_ctx_t *ctx,
@@ -496,23 +566,31 @@ uint8_t runtime_flow_handle_active_state(runtime_flow_ctx_t *ctx,
 {
     runtime_inputs_t inputs;
 
-    if (!ctx || !ctx->director || !ctx->base_scene || !ctx->oem_color || !ctx->current_theme ||
+    if (!ctx || !ctx->director || !ctx->base_scene || !ctx->oem_color ||
         !ctx->can_protocol_started || !ctx->can_protocol_start_ms) {
         return 0u;
     }
 
+    /* Defensive recovery: in ACTIVE path brightness must come from scene/runtime dimming.
+     * If a previous sleep fade left forced-brightness latched, OEM brightness appears frozen. */
     if (main_strip) {
-        can_ambient_fill_runtime_inputs(&inputs);
-#if defined(DEMO_MODE) && DEMO_MODE == 1
-        if (can_ambient_is_master()) {
-            g_night_mode_state = inputs.can_state.night_mode;
-        } else {
-            director_update(ctx->director, main_strip, ctx->base_scene, &inputs);
+#if AMB_ENABLE_SLEEP_MODE
+        if (!(ctx->sleep_fade_active && *ctx->sleep_fade_active)) {
+            led_runtime_release_brightness(main_strip);
         }
 #else
-        director_update(ctx->director, main_strip, ctx->base_scene, &inputs);
+        led_runtime_release_brightness(main_strip);
 #endif
-        runtime_maybe_trigger_hvac_temp_event(now);
+    }
+
+    if (main_strip) {
+        can_ambient_fill_runtime_inputs(&inputs);
+        director_update(ctx->director, main_strip, ctx->base_scene, &inputs);
+        runtime_events_maybe_arm_unlock_from_can(now);
+        runtime_events_maybe_trigger_unlock_signature(ctx, now);
+        runtime_events_maybe_trigger_door_open(now);
+        runtime_events_maybe_trigger_lock_goodbye(ctx, main_strip);
+        runtime_events_maybe_trigger_hvac_temp(now);
 
         if (inputs.can_state.oem_color < OEM_COLOR_MAX) {
             *ctx->oem_color = (oem_color_id_t)inputs.can_state.oem_color;
@@ -521,11 +599,7 @@ uint8_t runtime_flow_handle_active_state(runtime_flow_ctx_t *ctx,
         }
     }
 
-    if (ctx->demo_mode_update) {
-        ctx->demo_mode_update(now);
-    }
-
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+#if AMB_ENABLE_SLEEP_MODE
     if (flow_state(ctx) == RUNTIME_ACTIVE || flow_state(ctx) == RUNTIME_SLEEP_PREP) {
         if (runtime_handle_sleep_state(ctx, main_strip, now)) {
             return 1u;
@@ -543,7 +617,7 @@ uint8_t runtime_flow_handle_active_state(runtime_flow_ctx_t *ctx,
                                   oem_received,
                                   *ctx->can_protocol_started,
                                   *ctx->can_protocol_start_ms,
-#if AMB_ENABLE_SLEEP_MODE && !DEMO_MODE
+#if AMB_ENABLE_SLEEP_MODE
                                   *ctx->sleep_fade_active
 #else
                                   0u

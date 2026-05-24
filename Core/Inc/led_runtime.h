@@ -8,6 +8,9 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Runtime-facing alias for board WS2812 strip object.
+ */
 typedef ws2812_t led_runtime_strip_t;
 
 /* Power and brightness bridge used by runtime/director layers. */

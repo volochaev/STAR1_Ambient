@@ -1,3 +1,7 @@
+/**
+ * @file board_dispatch.c
+ * @brief Compile-time board dispatcher for board-specific entry points.
+ */
 #include "board_dispatch.h"
 
 #include "board_dashboard.h"
@@ -7,6 +11,7 @@
 #include "board_door_rr.h"
 #include "board_rear.h"
 
+/* Return main strip object for active board profile. */
 led_runtime_strip_t *board_dispatch_get_main_strip(void)
 {
 #if (BOARD_TYPE == BOARD_TYPE_FL)
@@ -26,6 +31,7 @@ led_runtime_strip_t *board_dispatch_get_main_strip(void)
 #endif
 }
 
+/* Dispatch board LED initialization to active board profile. */
 void board_dispatch_led_init(void)
 {
 #if (BOARD_TYPE == BOARD_TYPE_FL)
@@ -43,6 +49,7 @@ void board_dispatch_led_init(void)
 #endif
 }
 
+/* Dispatch per-frame render call to active board profile. */
 void board_dispatch_led_render_all(void)
 {
 #if (BOARD_TYPE == BOARD_TYPE_FL)
@@ -60,6 +67,7 @@ void board_dispatch_led_render_all(void)
 #endif
 }
 
+/* Dispatch DMA transfer-complete callback to active board profile. */
 void board_dispatch_dma_tc(TIM_HandleTypeDef *htim)
 {
 #if (BOARD_TYPE == BOARD_TYPE_FL)

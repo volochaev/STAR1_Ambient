@@ -11,7 +11,7 @@
  */
 
 #include "driver.h"
-#include "features.h"
+#include "ambient_config.h"
 #include <math.h>
 #include <string.h>
 
@@ -159,8 +159,21 @@ static void pack_into(ws2812_t *ws, uint32_t *dst)
         uint32_t t_ms = HAL_GetTick();
 #endif
         for (uint16_t i = 0; i < ws->led_count && bits_written < bits_payload; ++i) {
+            uint8_t r = *src++;
+            uint8_t g = *src++;
+            uint8_t b = *src++;
+            uint8_t ordered[3];
+            if (ws->color_order == WS_COLOR_ORDER_GRB) {
+                ordered[0] = g;
+                ordered[1] = r;
+                ordered[2] = b;
+            } else {
+                ordered[0] = r;
+                ordered[1] = g;
+                ordered[2] = b;
+            }
             for (uint32_t c = 0; c < BYTES_PER_LED && bits_written < bits_payload; ++c) {
-                uint8_t v = *src++;
+                uint8_t v = ordered[c];
                 if (bq != 255u) {
 #if AMB_ENABLE_GAMMA
                     uint32_t lin = g_gamma_inv[v];
@@ -228,7 +241,14 @@ void ws_init(ws2812_t        *ws,
     ws->global_brightness = 1.0f;
     ws->br_forced         = 0u;
     ws->br_forced_value   = 0.0f;
+    ws->color_order       = WS_COLOR_ORDER_RGB;
     ws->dma_busy          = 0u;
+}
+
+void ws_set_color_order(ws2812_t *ws, uint8_t color_order)
+{
+    if (!ws) return;
+    ws->color_order = (color_order == WS_COLOR_ORDER_GRB) ? WS_COLOR_ORDER_GRB : WS_COLOR_ORDER_RGB;
 }
 
 void ws_set_global_brightness(ws2812_t *ws, float br)
@@ -252,19 +272,27 @@ void ws_release_brightness(ws2812_t *ws)
 
 void ws_render(ws2812_t *ws)
 {
+    HAL_StatusTypeDef st;
+
     if (!ws || !ws->htim || !ws->dma_buf || !ws->rgb)
         return;
 
     if (ws->dma_busy)
-        return;  /* Ждём завершения предыдущей передачи */
+        return;  /* Wait until previous DMA transfer is complete. */
 
     pack_into(ws, ws->dma_buf);
-    ws->dma_busy = 1u;
-
-    HAL_TIM_PWM_Start_DMA(ws->htim,
-                          ws->tim_channel,
-                          (uint32_t*)ws->dma_buf,
-                          ws->dma_len);
+    st = HAL_TIM_PWM_Start_DMA(ws->htim,
+                               ws->tim_channel,
+                               (uint32_t*)ws->dma_buf,
+                               ws->dma_len);
+    if (st == HAL_OK) {
+        ws->dma_busy = 1u;
+    } else if (st == HAL_BUSY) {
+        ws->dma_busy = 0u;
+    } else {
+        /* Do not latch busy on failed start: allow next frame retry. */
+        ws->dma_busy = 0u;
+    }
 }
 
 void ws_dma_tc_isr(ws2812_t *ws, TIM_HandleTypeDef *htim)

@@ -1,3 +1,7 @@
+/**
+ * @file ambient_role.c
+ * @brief Master/slave role selection and discovery tracking.
+ */
 #include "ambient_role.h"
 
 #include <stdint.h>
@@ -12,6 +16,7 @@ static volatile uint32_t g_last_master_heartbeat_ms = 0u;
 static volatile uint8_t g_discovered_boards[BOARD_COUNT] = {0, 0, 0, 0, 0, 0};
 static volatile uint32_t g_discovery_last_seen_ms[BOARD_COUNT] = {0, 0, 0, 0, 0, 0};
 
+/* Stable priority order used by election logic. */
 static uint8_t board_priority(uint8_t board_type)
 {
     switch (board_type) {
@@ -25,11 +30,13 @@ static uint8_t board_priority(uint8_t board_type)
     }
 }
 
+/* Wrap-safe elapsed milliseconds helper. */
 static uint32_t elapsed_ms32(uint32_t now, uint32_t then)
 {
     return (now >= then) ? (now - then) : ((UINT32_MAX - then) + now + 1u);
 }
 
+/* Atomic role getter for mixed ISR/main-loop access. */
 static int8_t role_get_atomic(void)
 {
     int8_t role;
@@ -39,6 +46,7 @@ static int8_t role_get_atomic(void)
     return role;
 }
 
+/* Atomic role setter for mixed ISR/main-loop access. */
 static void role_set_atomic(int8_t role)
 {
     __disable_irq();
@@ -46,6 +54,7 @@ static void role_set_atomic(int8_t role)
     __enable_irq();
 }
 
+/* Atomic heartbeat timestamp getter. */
 static uint32_t master_heartbeat_get_atomic(void)
 {
     uint32_t hb;
@@ -55,6 +64,7 @@ static uint32_t master_heartbeat_get_atomic(void)
     return hb;
 }
 
+/* Atomic heartbeat timestamp setter. */
 static void master_heartbeat_set_atomic(uint32_t ts_ms)
 {
     __disable_irq();
@@ -62,6 +72,7 @@ static void master_heartbeat_set_atomic(uint32_t ts_ms)
     __enable_irq();
 }
 
+/* Snapshot discovery bitmap atomically for election checks. */
 static void copy_discovered_boards_atomic(uint8_t out[BOARD_COUNT])
 {
     uint8_t i;
@@ -73,6 +84,7 @@ static void copy_discovered_boards_atomic(uint8_t out[BOARD_COUNT])
     __enable_irq();
 }
 
+/* Check if any currently discovered board outranks this board type. */
 static uint8_t has_higher_priority_board(const uint8_t discovered[BOARD_COUNT])
 {
     uint8_t this_p = board_priority((uint8_t)BOARD_TYPE);
@@ -89,11 +101,13 @@ static uint8_t has_higher_priority_board(const uint8_t discovered[BOARD_COUNT])
     return 0u;
 }
 
+/* Convert discovery snapshot into expected master/slave role. */
 static uint8_t should_be_master_from_discovery(const uint8_t discovered[BOARD_COUNT])
 {
     return (uint8_t)(has_higher_priority_board(discovered) ? 0u : 1u);
 }
 
+/* Drop stale discovery entries so election reflects live topology. */
 static void cleanup_discovery_stale(uint32_t now_ms)
 {
     uint8_t i;
@@ -112,6 +126,7 @@ static void cleanup_discovery_stale(uint32_t now_ms)
     __enable_irq();
 }
 
+/* Initialize role subsystem and discovery tables. */
 void can_role_init(void)
 {
     uint8_t i;

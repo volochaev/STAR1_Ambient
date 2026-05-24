@@ -33,7 +33,7 @@ __ALIGNED(4) static uint32_t rear_storage_dma[BOARD_DMA_BUF_LEN(1)];
 static uint8_t rear_footwell_fb[REAR_FOOTWELL_LEDS * BYTES_PER_LED];
 __ALIGNED(4) static uint32_t rear_footwell_dma[BOARD_DMA_BUF_LEN(REAR_FOOTWELL_LEDS)];
 
-/* === Экземпляры ws2812_t (фактически физические линии/zones) ========= */
+/* WS2812 driver instances (physical board lines/zones). */
 
 ws2812_t g_rear_strip;
 ws2812_t g_rear_handle;
@@ -41,13 +41,13 @@ ws2812_t g_rear_storage;
 ws2812_t g_rear_footwell;
 
 static const board_led_line_t g_rear_lines[] = {
-    { &g_rear_strip, TIM_CHANNEL_1, rear_strip_fb, rear_strip_dma, REAR_STRIP_LEDS, 1u },
-    { &g_rear_handle, TIM_CHANNEL_2, rear_handle_fb, rear_handle_dma, REAR_HANDLE_LEDS, (REAR_HANDLE_LEDS > 0u) ? 1u : 0u },
-    { &g_rear_storage, TIM_CHANNEL_3, rear_storage_fb, rear_storage_dma, REAR_STORAGE_LEDS, (REAR_STORAGE_LEDS > 0u) ? 1u : 0u },
-    { &g_rear_footwell, TIM_CHANNEL_4, rear_footwell_fb, rear_footwell_dma, REAR_FOOTWELL_LEDS, 1u },
+    { &g_rear_strip, TIM_CHANNEL_1, rear_strip_fb, rear_strip_dma, REAR_STRIP_LEDS, REAR_STRIP_ORDER, 1u },
+    { &g_rear_handle, TIM_CHANNEL_2, rear_handle_fb, rear_handle_dma, REAR_HANDLE_LEDS, REAR_HANDLE_ORDER, (REAR_HANDLE_LEDS > 0u) ? 1u : 0u },
+    { &g_rear_storage, TIM_CHANNEL_3, rear_storage_fb, rear_storage_dma, REAR_STORAGE_LEDS, REAR_STORAGE_ORDER, (REAR_STORAGE_LEDS > 0u) ? 1u : 0u },
+    { &g_rear_footwell, TIM_CHANNEL_4, rear_footwell_fb, rear_footwell_dma, REAR_FOOTWELL_LEDS, REAR_FOOTWELL_ORDER, 1u },
 };
 
-/* === Инициализация ==================================================== */
+/* Initialization. */
 
 void board_rear_led_init(void)
 {
@@ -57,7 +57,7 @@ void board_rear_led_init(void)
                                  1u);
 }
 
-/* === Рендер всех линий борда ========================================= */
+/* Render all board lines. */
 
 void board_rear_led_render_all(void)
 {

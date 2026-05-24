@@ -1,9 +1,14 @@
+/**
+ * @file ambient_tx.c
+ * @brief CAN transmit helpers for ambient control/status frames.
+ */
 #include "ambient_tx.h"
 
 #include <string.h>
 
 #include "ambient.h"
 
+/* Fill canonical Classic CAN 8-byte TX header. */
 static void tx_header_init(FDCAN_TxHeaderTypeDef *tx_header, uint32_t id)
 {
     tx_header->Identifier = id;
@@ -17,6 +22,7 @@ static void tx_header_init(FDCAN_TxHeaderTypeDef *tx_header, uint32_t id)
     tx_header->MessageMarker = 0;
 }
 
+/* Push one frame to FDCAN TX FIFO queue. */
 static void tx_send(FDCAN_HandleTypeDef *hfdcan, uint32_t id, const uint8_t data[8])
 {
     FDCAN_TxHeaderTypeDef tx_header;
@@ -29,9 +35,12 @@ static void tx_send(FDCAN_HandleTypeDef *hfdcan, uint32_t id, const uint8_t data
     (void)status;
 }
 
+/* Send legacy master heartbeat/state frame. */
 void can_tx_send_master(FDCAN_HandleTypeDef *hfdcan,
                         const can_state_t *state,
-                        motion_profile_t motion_profile)
+                        motion_profile_t motion_profile,
+                        uint8_t oem_diag_b3,
+                        uint8_t oem_diag_flags)
 {
     uint8_t tx_data[8] = {0};
     uint8_t flags;
@@ -41,28 +50,33 @@ void can_tx_send_master(FDCAN_HandleTypeDef *hfdcan,
     flags = state->night_mode ? MASTER_FLAG_NIGHT : 0u;
     tx_data[0] = PKT_TYPE_MASTER | (flags & 0x0Fu);
     tx_data[1] = state->bank_id;
-    tx_data[2] = state->theme_index;
+    tx_data[2] = state->oem_color & 0x0Fu;
     tx_data[3] = state->oem_color;
     tx_data[4] = (uint8_t)(state->oem_brightness * 5.0f);
     tx_data[5] = (uint8_t)motion_profile;
+    tx_data[6] = oem_diag_b3;
+    tx_data[7] = oem_diag_flags;
 
-    tx_send(hfdcan, CAN_MASTER_ID, tx_data);
+	tx_send(hfdcan, CAN_MASTER_ID, tx_data);
 }
 
+/* Send periodic legacy sync frame. */
 void can_tx_send_sync(FDCAN_HandleTypeDef *hfdcan,
-                      uint8_t bank_id,
-                      uint8_t theme_index)
+                      uint8_t oem_color,
+                      uint8_t brightness_raw)
 {
     uint8_t tx_data[8] = {0};
 
     if (!hfdcan) return;
 
-    tx_data[0] = PKT_TYPE_SYNC | (bank_id & 0x0Fu);
-    tx_data[1] = theme_index;
+    if (brightness_raw > 5u) brightness_raw = 5u;
+    tx_data[0] = PKT_TYPE_SYNC | (oem_color & 0x0Fu);
+    tx_data[1] = brightness_raw;
 
     tx_send(hfdcan, CAN_MASTER_ID, tx_data);
 }
 
+/* Send board discovery frame for role election. */
 void can_tx_send_discovery(FDCAN_HandleTypeDef *hfdcan,
                            uint32_t unique_id,
                            uint8_t is_master)
@@ -81,6 +95,7 @@ void can_tx_send_discovery(FDCAN_HandleTypeDef *hfdcan,
     tx_send(hfdcan, CAN_DISCOVERY_ID, tx_data);
 }
 
+/* Send arbitrary test payload (bounded to 8 bytes). */
 void can_tx_send_test(FDCAN_HandleTypeDef *hfdcan,
                       uint32_t id,
                       const uint8_t *data,
@@ -93,4 +108,24 @@ void can_tx_send_test(FDCAN_HandleTypeDef *hfdcan,
 
     memcpy(tx_data, data, len);
     tx_send(hfdcan, id, tx_data);
+}
+
+/* Send modern unified 0x12B ambient status frame. */
+void can_tx_send_body_ambient_status(FDCAN_HandleTypeDef *hfdcan,
+                                     uint8_t color_stat,
+                                     uint8_t brightness_stat,
+                                     uint8_t effect_stat)
+{
+    uint8_t tx_data[8] = {0};
+
+    if (!hfdcan) return;
+
+    /* Working frame layout:
+     * base pattern 00 00 00 1E XX 00 00 00
+     * data[4] low nibble = brightness, high nibble = color, data[7] bits1:0 = effect. */
+    tx_data[3] = 0x1Eu;
+    tx_data[4] = (uint8_t)(((color_stat & 0x0Fu) << 4) | (brightness_stat & 0x0Fu));
+    tx_data[7] = (uint8_t)(effect_stat & 0x03u);
+
+    tx_send(hfdcan, CAN_BODY_AMB_STAT_ID, tx_data);
 }

@@ -6,6 +6,7 @@
 extern "C" {
 #endif
 
+/** Drive periodic CAN TX scheduling for master/discovery/status frames. */
 void runtime_can_tx_scheduler_tick(uint32_t now,
                                    uint8_t oem_received,
                                    uint8_t can_protocol_started,

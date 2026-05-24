@@ -1,7 +1,12 @@
+/**
+ * @file board_led_backend.c
+ * @brief Shared backend helpers for board LED line init/render/DMA TC.
+ */
 #include "board_led_backend.h"
 
 #include "led_runtime.h"
 
+/* Initialize all configured LED lines for selected board profile. */
 void board_led_backend_init_lines(TIM_HandleTypeDef *htim,
                                   const board_led_line_t *lines,
                                   uint8_t line_count,
@@ -20,6 +25,7 @@ void board_led_backend_init_lines(TIM_HandleTypeDef *htim,
                 line->framebuffer,
                 line->dma_buf,
                 line->led_count);
+        ws_set_color_order(line->ws, line->color_order);
     }
 
     if (power_off_after_init) {
@@ -27,6 +33,7 @@ void board_led_backend_init_lines(TIM_HandleTypeDef *htim,
     }
 }
 
+/* Render all board lines that are marked as render-enabled. */
 void board_led_backend_render_lines(const board_led_line_t *lines, uint8_t line_count)
 {
     uint8_t i;
@@ -40,6 +47,7 @@ void board_led_backend_render_lines(const board_led_line_t *lines, uint8_t line_
     }
 }
 
+/* Forward DMA transfer-complete callback to all board LED lines. */
 void board_led_backend_dma_tc_lines(const board_led_line_t *lines,
                                     uint8_t line_count,
                                     TIM_HandleTypeDef *htim)
