@@ -45,6 +45,6 @@ Use STM32CubeIDE or your standard STM32 flashing flow for the generated ELF from
 ## Bench validation
 
 Use prepared scenarios:
-- `docs/can-bench-examples.md`
-- `docs/can-hacker-presets.md`
+- `docs/canhacker.tsk`
+- `docs/lighting-model.md`
 - `docs/canhacker.tsk`

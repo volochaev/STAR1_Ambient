@@ -1,7 +1,13 @@
 #include "zone_roles.h"
 
 #include "ambient_config.h"
+#include "runtime_debug_hooks.h"
 #include "zones.h"
+
+#define ZONE_SAFETY_ALPHA_FLOOR 0.32f
+
+_Static_assert(ZONE_ROLE_MAX <= 8, "runtime diag role mask stores up to 8 roles");
+_Static_assert(ZONE_SAFETY_ALPHA_FLOOR > 0.0f && ZONE_SAFETY_ALPHA_FLOOR <= 1.0f, "invalid safety floor");
 
 typedef struct {
     uint8_t active;
@@ -11,6 +17,13 @@ typedef struct {
     float alpha;
     zone_blend_mode_t blend_mode;
 } zone_role_layer_t;
+
+typedef struct {
+    uint32_t allowed_role_mask;
+    zone_blend_mode_t preferred_blend;
+    float alpha_cap;
+    int8_t priority_offset;
+} zone_group_policy_t;
 
 static const zone_descriptor_t g_zone_descriptors[ZONE_MAX] = {
     [ZONE_STRIP] = {
@@ -70,6 +83,45 @@ static const zone_role_policy_t g_role_policy[ZONE_ROLE_MAX] = {
     },
 };
 
+static const zone_group_policy_t g_group_policy[ZONE_GROUP_MAX] = {
+    [ZONE_GROUP_MAIN_LINE] = {
+        .allowed_role_mask = ZONE_ROLE_BIT(ZONE_ROLE_AMBIENT_BASE) |
+                             ZONE_ROLE_BIT(ZONE_ROLE_GUIDANCE_LINE) |
+                             ZONE_ROLE_BIT(ZONE_ROLE_COMFORT_POOL) |
+                             ZONE_ROLE_BIT(ZONE_ROLE_ATTENTION_POINT) |
+                             ZONE_ROLE_BIT(ZONE_ROLE_SAFETY_ALERT),
+        .preferred_blend = ZONE_BLEND_MAX,
+        .alpha_cap = 1.0f,
+        .priority_offset = 0,
+    },
+    [ZONE_GROUP_INTERACTION] = {
+        .allowed_role_mask = ZONE_ROLE_BIT(ZONE_ROLE_AMBIENT_BASE) |
+                             ZONE_ROLE_BIT(ZONE_ROLE_ATTENTION_POINT) |
+                             ZONE_ROLE_BIT(ZONE_ROLE_SAFETY_ALERT),
+        .preferred_blend = ZONE_BLEND_MAX,
+        .alpha_cap = 1.0f,
+        .priority_offset = 4,
+    },
+    [ZONE_GROUP_COMFORT] = {
+        .allowed_role_mask = ZONE_ROLE_BIT(ZONE_ROLE_AMBIENT_BASE) |
+                             ZONE_ROLE_BIT(ZONE_ROLE_COMFORT_POOL) |
+                             ZONE_ROLE_BIT(ZONE_ROLE_ATTENTION_POINT),
+        .preferred_blend = ZONE_BLEND_MAX,
+        .alpha_cap = 0.90f,
+        .priority_offset = -2,
+    },
+    [ZONE_GROUP_SERVICE] = {
+        .allowed_role_mask = ZONE_ROLE_BIT(ZONE_ROLE_AMBIENT_BASE) |
+                             ZONE_ROLE_BIT(ZONE_ROLE_GUIDANCE_LINE) |
+                             ZONE_ROLE_BIT(ZONE_ROLE_ATTENTION_POINT) |
+                             ZONE_ROLE_BIT(ZONE_ROLE_SAFETY_ALERT),
+        .preferred_blend = ZONE_BLEND_OVERRIDE,
+        .alpha_cap = 0.82f,
+        .priority_offset = 2,
+    },
+};
+_Static_assert(ZONE_GROUP_MAX == 4, "update group policy table");
+
 static zone_role_layer_t g_layers[ZONE_MAX][ZONE_ROLE_MAX];
 static uint8_t g_base_rgb[ZONE_MAX][AMB_MAX_CROSSFADE_LEDS * 3u];
 static uint16_t g_base_count[ZONE_MAX];
@@ -120,6 +172,26 @@ static uint8_t zone_mul_u8(uint8_t value, float alpha)
     if (v <= 0.0f) return 0u;
     if (v >= 255.0f) return 255u;
     return (uint8_t)(v + 0.5f);
+}
+
+static zone_group_id_t zone_roles_primary_group(zone_id_t zone)
+{
+    const zone_descriptor_t *desc = zone_roles_get_descriptor(zone);
+    uint32_t gm;
+    if (!desc) return ZONE_GROUP_MAIN_LINE;
+    gm = desc->group_mask;
+    if (gm & ZONE_GROUP_BIT(ZONE_GROUP_MAIN_LINE)) return ZONE_GROUP_MAIN_LINE;
+    if (gm & ZONE_GROUP_BIT(ZONE_GROUP_INTERACTION)) return ZONE_GROUP_INTERACTION;
+    if (gm & ZONE_GROUP_BIT(ZONE_GROUP_SERVICE)) return ZONE_GROUP_SERVICE;
+    if (gm & ZONE_GROUP_BIT(ZONE_GROUP_COMFORT)) return ZONE_GROUP_COMFORT;
+    return ZONE_GROUP_MAIN_LINE;
+}
+
+static const zone_group_policy_t *zone_roles_group_policy(zone_id_t zone)
+{
+    zone_group_id_t gid = zone_roles_primary_group(zone);
+    if (gid >= ZONE_GROUP_MAX) return NULL;
+    return &g_group_policy[gid];
 }
 
 const zone_capabilities_t *zone_roles_get_capabilities(zone_id_t zone)
@@ -229,59 +301,100 @@ void zone_roles_submit(zone_id_t zone,
 {
     zone_role_layer_t *slot;
     const zone_role_policy_t *policy;
+    const zone_group_policy_t *group_policy;
+    uint8_t alpha_clamped = 0u;
+    uint8_t safety_fallback = 0u;
+    uint8_t safety_floor_applied = 0u;
 
     if (zone >= ZONE_MAX || role >= ZONE_ROLE_MAX) return;
-    if (!zone_roles_zone_supports(zone, role)) return;
+    if (!zone_roles_zone_supports(zone, role)) {
+        runtime_debug_hooks_diag_note_zone_submit(zone, role, RUNTIME_DIAG_SUBMIT_REJECT_ROLE, 0u, 0u, 0u);
+        return;
+    }
+    group_policy = zone_roles_group_policy(zone);
+    if (!group_policy) {
+        runtime_debug_hooks_diag_note_zone_submit(zone, role, RUNTIME_DIAG_SUBMIT_REJECT_GROUP, 0u, 0u, 0u);
+        return;
+    }
+    if ((group_policy->allowed_role_mask & ZONE_ROLE_BIT(role)) == 0u) {
+        runtime_debug_hooks_diag_note_zone_submit(zone, role, RUNTIME_DIAG_SUBMIT_REJECT_GROUP, 0u, 0u, 0u);
+        return;
+    }
     policy = zone_roles_get_policy(role);
     if (!policy) return;
     alpha = zone_clamp01(alpha);
-    if (alpha > policy->alpha_cap) alpha = policy->alpha_cap;
+    if (alpha > policy->alpha_cap) {
+        alpha = policy->alpha_cap;
+        alpha_clamped = 1u;
+    }
+    if (alpha > group_policy->alpha_cap) {
+        alpha = group_policy->alpha_cap;
+        alpha_clamped = 1u;
+    }
+    if (role == ZONE_ROLE_SAFETY_ALERT && alpha < ZONE_SAFETY_ALPHA_FLOOR) {
+        alpha = ZONE_SAFETY_ALPHA_FLOOR;
+        safety_floor_applied = 1u;
+    }
     if (alpha <= 0.0f) return;
 
     slot = &g_layers[zone][role];
     if (!slot->active || alpha >= slot->alpha) {
+        zone_blend_mode_t allowed_blend = blend_mode;
+        if (!(allowed_blend == ZONE_BLEND_OVERRIDE || allowed_blend == ZONE_BLEND_MAX || allowed_blend == ZONE_BLEND_ADD)) {
+            allowed_blend = policy->preferred_blend;
+        }
+        if (group_policy->preferred_blend == ZONE_BLEND_OVERRIDE && role != ZONE_ROLE_SAFETY_ALERT) {
+            allowed_blend = ZONE_BLEND_MAX;
+        }
+        if (role == ZONE_ROLE_SAFETY_ALERT && allowed_blend != ZONE_BLEND_OVERRIDE) {
+            allowed_blend = ZONE_BLEND_OVERRIDE;
+            safety_fallback = 1u;
+        }
         slot->active = 1u;
         slot->r = r;
         slot->g = g;
         slot->b = b;
         slot->alpha = alpha;
-        slot->blend_mode = (blend_mode == ZONE_BLEND_OVERRIDE || blend_mode == ZONE_BLEND_MAX || blend_mode == ZONE_BLEND_ADD)
-                               ? blend_mode
-                               : policy->preferred_blend;
+        slot->blend_mode = allowed_blend;
     }
+    runtime_debug_hooks_diag_note_zone_submit(zone, role, RUNTIME_DIAG_SUBMIT_OK, alpha_clamped, safety_fallback, safety_floor_applied);
 }
 
 void zone_roles_frame_apply(void)
 {
     uint8_t z;
-    uint8_t role_order[ZONE_ROLE_MAX];
-    uint8_t role_count = 0u;
     uint8_t role;
-
-    /* Build role order from policy priority (ascending = base first, safety last). */
-    for (role = 0u; role < (uint8_t)ZONE_ROLE_MAX; ++role) {
-        uint8_t ins = role_count;
-        const zone_role_policy_t *pol = zone_roles_get_policy((zone_role_id_t)role);
-        uint8_t prio = pol ? pol->priority : 255u;
-        while (ins > 0u) {
-            const zone_role_policy_t *prev_pol = zone_roles_get_policy((zone_role_id_t)role_order[ins - 1u]);
-            uint8_t prev_prio = prev_pol ? prev_pol->priority : 255u;
-            if (prev_prio <= prio) break;
-            role_order[ins] = role_order[ins - 1u];
-            --ins;
-        }
-        role_order[ins] = role;
-        ++role_count;
-    }
 
     for (z = 0u; z < (uint8_t)ZONE_MAX; ++z) {
         const zone_map_t *zm = &g_zone_map[z];
+        const zone_group_policy_t *gp = zone_roles_group_policy((zone_id_t)z);
+        uint8_t role_order[ZONE_ROLE_MAX];
+        uint8_t role_count = 0u;
         uint16_t i;
 
         if (!zm || !zm->strip || zm->count == 0u) continue;
+        for (role = 0u; role < (uint8_t)ZONE_ROLE_MAX; ++role) {
+            uint8_t ins = role_count;
+            const zone_role_policy_t *pol = zone_roles_get_policy((zone_role_id_t)role);
+            int16_t prio = pol ? (int16_t)pol->priority : 255;
+            int16_t offs = gp ? (int16_t)gp->priority_offset : 0;
+            int16_t ep = prio + offs;
+            while (ins > 0u) {
+                const zone_role_policy_t *pp = zone_roles_get_policy((zone_role_id_t)role_order[ins - 1u]);
+                int16_t pprev = pp ? (int16_t)pp->priority : 255;
+                int16_t eprev = pprev + offs;
+                if (eprev <= ep) break;
+                role_order[ins] = role_order[ins - 1u];
+                --ins;
+            }
+            role_order[ins] = role;
+            ++role_count;
+        }
+
         for (i = 0u; i < zm->count; ++i) {
             uint16_t led_idx = (uint16_t)(zm->first + i);
             uint8_t out_r, out_g, out_b;
+            uint8_t active_role_mask = 0u;
             if (g_base_valid[z] && i < g_base_count[z]) {
                 uint16_t p = (uint16_t)(i * 3u);
                 out_r = g_base_rgb[z][p + 0u];
@@ -295,6 +408,7 @@ void zone_roles_frame_apply(void)
                 const zone_role_layer_t *layer = &g_layers[z][role_order[role]];
                 uint8_t lr, lg, lb;
                 if (!layer->active) continue;
+                active_role_mask |= (uint8_t)ZONE_ROLE_BIT(role_order[role]);
 
                 lr = zone_mul_u8(layer->r, layer->alpha);
                 lg = zone_mul_u8(layer->g, layer->alpha);
@@ -319,6 +433,30 @@ void zone_roles_frame_apply(void)
             }
 
             led_runtime_set_pixel_rgb(zm->strip, led_idx, out_r, out_g, out_b);
+            if (i == 0u) {
+                runtime_debug_hooks_diag_set_zone_frame((zone_id_t)z, active_role_mask, role_order, role_count);
+            }
         }
     }
+}
+
+uint8_t zone_roles_debug_self_check(void)
+{
+#if AMB_DEBUG_BSM_RX_PULSE
+    zone_role_layer_t *slot;
+    zone_roles_frame_begin();
+    zone_roles_submit(ZONE_STRIP,
+                      ZONE_ROLE_SAFETY_ALERT,
+                      255u, 0u, 0u,
+                      0.01f,            /* intentionally below safety floor */
+                      ZONE_BLEND_ADD);  /* intentionally weak blend to trigger fallback */
+    slot = &g_layers[ZONE_STRIP][ZONE_ROLE_SAFETY_ALERT];
+    if (!slot->active) return 0u;
+    if (slot->alpha < ZONE_SAFETY_ALPHA_FLOOR) return 0u;
+    if (slot->blend_mode != ZONE_BLEND_OVERRIDE) return 0u;
+    zone_roles_frame_begin();
+    return 1u;
+#else
+    return 1u;
+#endif
 }

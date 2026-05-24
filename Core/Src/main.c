@@ -27,6 +27,7 @@
 #include "director.h"
 #include "event_layer.h"
 #include "zones.h"
+#include "zone_roles.h"
 #include "ambient.h"
 #include "ambient_config.h"
 #include "handle_pwm.h"
@@ -36,6 +37,12 @@
 #include "app_runtime.h"
 #include <string.h>
 /* USER CODE END Includes */
+
+#if AMB_ENABLE_WATCHDOG
+#if (AMB_STOP_WDG_WAKEUP_SEC * 1000u) >= AMB_WATCHDOG_TIMEOUT_MS
+#error "AMB_STOP_WDG_WAKEUP_SEC must be lower than AMB_WATCHDOG_TIMEOUT_MS."
+#endif
+#endif
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
@@ -123,6 +130,7 @@ static void configure_can_rx_exti_wakeup(void)
     HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
+#if AMB_ENABLE_TRANSCEIVER_WAKE_PIN
     /* Additional wake source from CAN transceiver WAKE/INT (PB7). */
     GPIO_InitStruct.Pin = FDCAN1_WAKEUP_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
@@ -131,6 +139,7 @@ static void configure_can_rx_exti_wakeup(void)
     __HAL_GPIO_EXTI_CLEAR_IT(FDCAN1_WAKEUP_Pin);
     HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
     HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+#endif
 }
 
 /**
@@ -142,9 +151,13 @@ static void restore_can_rx_af(void)
 
     /* Disable EXTI IRQs. */
     HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
+#if AMB_ENABLE_TRANSCEIVER_WAKE_PIN
     HAL_NVIC_DisableIRQ(EXTI9_5_IRQn);
+#endif
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_11);
+#if AMB_ENABLE_TRANSCEIVER_WAKE_PIN
     __HAL_GPIO_EXTI_CLEAR_IT(FDCAN1_WAKEUP_Pin);
+#endif
 
     /* Restore alternate-function mapping for FDCAN. */
     GPIO_InitStruct.Pin = GPIO_PIN_11 | GPIO_PIN_12;
@@ -154,11 +167,13 @@ static void restore_can_rx_af(void)
     GPIO_InitStruct.Alternate = GPIO_AF9_FDCAN1;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+#if AMB_ENABLE_TRANSCEIVER_WAKE_PIN
     /* Restore PB7 to normal GPIO input (without EXTI). */
     GPIO_InitStruct.Pin = FDCAN1_WAKEUP_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(FDCAN1_WAKEUP_GPIO_Port, &GPIO_InitStruct);
+#endif
 }
 #endif
 
@@ -212,6 +227,8 @@ static void rtc_wakeup_init_1hz(void)
  */
 static void rtc_wakeup_start_1s(void)
 {
+    uint32_t wakeup_period_s = AMB_STOP_WDG_WAKEUP_SEC;
+
     __HAL_RCC_RTCAPB_CLK_ENABLE();
 
     RTC->WPR = 0xCA;
@@ -222,8 +239,10 @@ static void rtc_wakeup_start_1s(void)
     while ((RTC->ICSR & RTC_ICSR_WUTWF) == 0u) {
     }
 
-    /* ck_spre (1Hz), period = WUTR+1 => 1 second */
-    RTC->WUTR = 0u;
+    /* ck_spre (1Hz), period = WUTR+1 => AMB_STOP_WDG_WAKEUP_SEC seconds */
+    if (wakeup_period_s == 0u) wakeup_period_s = 1u;
+    if (wakeup_period_s > 0x10000u) wakeup_period_s = 0x10000u;
+    RTC->WUTR = wakeup_period_s - 1u;
     RTC->CR = (RTC->CR & ~RTC_CR_WUCKSEL) | RTC_CR_WUCKSEL_2;
     RTC->SCR = RTC_SCR_CWUTF;
 
@@ -316,6 +335,7 @@ int main(void)
 	can_ambient_init(&hfdcan1);
 	runtime_event_queue_init();
 	runtime_debug_hooks_init();
+	runtime_debug_hooks_set_self_check_ok(zone_roles_debug_self_check());
 
 	// 3) Seed defaults (will be updated from CAN)
 	g_oem_color = OEM_COLOR_AMBER;

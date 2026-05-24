@@ -11,6 +11,10 @@
 #include "ambient_config.h"
 #include "led_runtime.h"
 
+#if (AMB_PROFILE == AMB_PROFILE_PRODUCTION) && (AMB_CAN_WAKE_POLICY != AMB_CAN_WAKE_PRODUCTION)
+#error "Production profile must use AMB_CAN_WAKE_PRODUCTION."
+#endif
+
 static volatile uint32_t g_last_can_activity_ms = 0u;
 static volatile uint8_t g_sleep_requested = 0u;
 static volatile uint8_t g_is_sleeping = 0u;
@@ -188,10 +192,18 @@ void can_power_note_stop_wakeup(uint8_t wake_src)
     } else if (wake_src == 2u) {
         g_power_diag.last_wake_reason = CAN_WAKE_REASON_STOP_EXTI_TRANSCEIVER;
     } else {
+        g_power_diag.stop_unexpected_wakeup_count++;
         return;
     }
     g_power_diag.last_wake_ms = now;
     g_power_diag.wake_count++;
+}
+
+void can_power_note_stop_rtc_wakeup_cycle(void)
+{
+    g_power_diag.stop_rtc_wakeup_count++;
+    g_power_diag.last_wake_reason = CAN_WAKE_REASON_STOP_RTC;
+    g_power_diag.last_wake_ms = HAL_GetTick();
 }
 
 void can_power_get_diag(can_power_diag_t *out)

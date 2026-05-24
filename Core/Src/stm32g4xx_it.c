@@ -306,12 +306,14 @@ void RTC_WKUP_IRQHandler(void)
   */
 void EXTI9_5_IRQHandler(void)
 {
+#if AMB_ENABLE_TRANSCEIVER_WAKE_PIN
   if (__HAL_GPIO_EXTI_GET_IT(FDCAN1_WAKEUP_Pin) != RESET) {
 #if AMB_ENABLE_SLEEP_MODE
     runtime_stop_signal_wakeup(2u);
 #endif
     __HAL_GPIO_EXTI_CLEAR_IT(FDCAN1_WAKEUP_Pin);
   }
+#endif
 }
 
 /**

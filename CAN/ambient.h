@@ -136,6 +136,7 @@ typedef enum {
     CAN_WAKE_REASON_STOP_EXTI_TRANSCEIVER = 3u, /* STOP wake via transceiver wake EXTI line. */
     CAN_WAKE_REASON_MANUAL_AWAKE = 4u,          /* Manual wake request via API. */
     CAN_WAKE_REASON_EXIT_SLEEP = 5u,            /* Wake as part of sleep-exit sequence. */
+    CAN_WAKE_REASON_STOP_RTC = 6u,              /* Periodic RTC wake while staying in STOP loop. */
 } can_wake_reason_t;
 
 typedef struct {
@@ -148,6 +149,8 @@ typedef struct {
     uint32_t last_sleep_enter_ms;
     uint32_t last_wake_ms;
     uint32_t last_idle_ms_at_request;
+    uint32_t stop_rtc_wakeup_count;
+    uint32_t stop_unexpected_wakeup_count;
 } can_power_diag_t;
 
 typedef struct {
@@ -356,6 +359,7 @@ void can_ambient_exit_sleep(void);
  * @param wake_src 1 = CAN RX EXTI (PA11), 2 = transceiver WAKE EXTI (PB7)
  */
 void can_ambient_note_stop_wakeup(uint8_t wake_src);
+void can_ambient_note_stop_rtc_wakeup_cycle(void);
 
 /**
  * @brief Read power diagnostics snapshot

@@ -35,6 +35,8 @@ void can_power_enter_sleep(FDCAN_HandleTypeDef *hfdcan);
 void can_power_exit_sleep(FDCAN_HandleTypeDef *hfdcan);
 /** Record STOP wake source in diagnostics. */
 void can_power_note_stop_wakeup(uint8_t wake_src);
+/** Record periodic RTC wake cycle while still waiting in STOP loop. */
+void can_power_note_stop_rtc_wakeup_cycle(void);
 /** Return power diagnostics snapshot. */
 void can_power_get_diag(can_power_diag_t *out);
 /** Reset power diagnostics counters/state. */

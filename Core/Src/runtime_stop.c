@@ -53,6 +53,9 @@ void runtime_stop_enter_and_wait(const runtime_stop_hooks_t *hooks)
             }
             HAL_ResumeTick();
             if (!g_runtime_wakeup_event && hooks->watchdog) {
+                if (hooks->note_periodic_wakeup_cycle) {
+                    hooks->note_periodic_wakeup_cycle();
+                }
                 HAL_IWDG_Refresh(hooks->watchdog);
             }
         }

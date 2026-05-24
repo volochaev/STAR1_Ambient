@@ -287,6 +287,11 @@ extern "C" {
 #endif
 #endif
 
+/* Enable dedicated transceiver WAKE/INT pin (PB7) as STOP wake source. */
+#ifndef AMB_ENABLE_TRANSCEIVER_WAKE_PIN
+#define AMB_ENABLE_TRANSCEIVER_WAKE_PIN 0u
+#endif
+
 #ifdef __cplusplus
 }
 #endif

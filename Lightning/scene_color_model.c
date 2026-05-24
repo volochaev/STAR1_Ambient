@@ -3,22 +3,7 @@
  * @brief Map ambient color IDs to scene primary/accent color model.
  */
 #include "scene_color_model.h"
-
-/* Approximate 12-step HU color wheel RGB anchors (clockwise mapping). */
-static const scene_rgb8_t k_wheel12[] = {
-    {255u, 246u, 232u}, /* 0: warm white */
-    {255u, 122u, 26u},  /* 1: orange */
-    {255u, 165u, 26u},  /* 2: amber */
-    {255u, 210u, 26u},  /* 3: yellow */
-    {184u, 226u, 26u},  /* 4: yellow-green */
-    {123u, 234u, 44u},  /* 5: green */
-    {102u, 232u, 201u}, /* 6: mint */
-    {67u, 227u, 154u},  /* 7: turquoise */
-    {47u, 199u, 244u},  /* 8: cyan-blue */
-    {46u, 139u, 255u},  /* 9: blue */
-    {208u, 107u, 255u}, /* 10: violet */
-    {255u, 159u, 214u}, /* 11: pink */
-};
+#include "oem_color_wheel.h"
 
 /* Linear RGB interpolation helper. */
 static scene_rgb8_t rgb_mix(scene_rgb8_t a, scene_rgb8_t b, float t)
@@ -83,10 +68,10 @@ void scene_color_model_from_ambient(const ambient_state_snapshot_t *ambient_stat
     }
 
     color_id = ambient_state->color_id;
-    idx = (uint8_t)(color_id % (uint8_t)(sizeof(k_wheel12) / sizeof(k_wheel12[0])));
-    primary = k_wheel12[idx];
-    a = k_wheel12[(uint8_t)((idx + 1u) % 12u)];
-    b = k_wheel12[(uint8_t)((idx + 11u) % 12u)];
+    idx = (uint8_t)(color_id % oem_color_wheel_count());
+    primary = oem_color_wheel_at(idx);
+    a = oem_color_wheel_at((uint8_t)(idx + 1u));
+    b = oem_color_wheel_at((uint8_t)(idx + oem_color_wheel_count() - 1u));
 
     if (motion_profile == MOTION_PROFILE_CALM) energy = 0.35f;
     else if (motion_profile == MOTION_PROFILE_SPORT) energy = 0.82f;

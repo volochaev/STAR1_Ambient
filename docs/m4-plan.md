@@ -50,7 +50,7 @@ Status:
   entity-driven overlay palette (warm/cool/parking/safety/guidance)
   instead of fixed RGB constants in the zone module.
 
-## P2 (in progress)
+## P2 (done)
 
 - Add zone-group and role-policy descriptors:
   - per-board group capabilities,
@@ -65,8 +65,14 @@ Status:
 - role submissions are now policy-clamped by `alpha_cap`.
 - board-specific group/role mask adjustments are centralized in
   `zone_roles.c` board policy helpers.
+- strict `group_policy` runtime enforcement is active:
+  - role passes only if allowed by both `role_mask` and group allowed-role mask,
+  - effective alpha is clamped by role cap and group cap,
+  - zone apply priority uses role priority + group priority offset.
+- group-specific policy table is active for:
+  - `MAIN_LINE`, `INTERACTION`, `COMFORT`, `SERVICE`.
 
-## P3 (started)
+## P3 (done)
 
 - Introduce premium scene presets:
   - calm / classic / sport / lounge-like variants
@@ -78,10 +84,64 @@ Status:
   - `event_layer_start_hvac_wave_auto(...)`
 - director/runtime events migrated to auto builders, removing direct
   hardcoded warm/cool RGB usage from those call sites.
+- introduced `scene_preset` module with runtime preset resolve:
+  - presets: `classic`, `calm`, `sport`, `lounge`
+  - derived from motion profile + night mode
+  - currently drives event accent gain, welcome hold scaling,
+    and HVAC wave gain scaling in auto paths.
+- preset-signature is now integrated in core render path (`zones` + postprocess):
+  - temporal scale,
+  - contrast gain,
+  - neutral-mix bias,
+  - overlay gain normalization,
+  - motion tint multiplier,
+  - energy saturation multiplier.
 
-## P4
+Preset mapping (deterministic):
+- `sport` profile -> `sport`
+- `calm` profile -> `calm`
+- `luxury` + day -> `classic`
+- `luxury` + night -> `lounge`
+
+## P4 (done: baseline)
 
 - Validation/stress campaign:
   - CAN replay with high frame rate,
   - queue/load diagnostics,
   - visual regression checklist.
+
+Baseline results:
+- Debug build: `text=92856 data=208 bss=28248`
+- Release build: `text=54328 data=208 bss=28232`
+- Offline replay regression (`tools/run_replay_cases.py`): `5/5 PASS`.
+- Custom `ambient_test_00_to_C5.tsk` replay via current parser:
+  - parse failed (`0 frames`, `1014 unparsed lines`), format is not one of
+    supported candump/ASC forms and requires dedicated `.tsk` parser or export.
+
+## Post-M4 Hardening (done)
+
+- Runtime observability:
+  - unified runtime diag snapshot is exposed (queue + zone-role counters + active preset/multipliers).
+  - zone-role diagnostics include:
+    - submit accepted count,
+    - rejected-by-role count,
+    - rejected-by-group count,
+    - alpha clamp count,
+    - safety fallback count,
+    - safety alpha-floor applications,
+    - active role mask per zone,
+    - effective role order per zone.
+- Safety invariants:
+  - `SAFETY_ALERT` has hard alpha floor and cannot be degraded by group blend policy.
+  - safety fallback path enforces safe blend mode and increments diagnostics.
+- Legacy cleanup:
+  - removed unused raw ambient color macros that were superseded by entity/preset palette path.
+
+Visual regression checklist:
+- day/night transition with stable preset mapping (`classic/calm/sport/lounge`)
+- reverse activation/deactivation (no base scene discontinuity)
+- BSM active/inactive (safety dominance over decor/info)
+- HVAC trend/split overlays with active preset scaling
+- parking overlay (left/right/rear) pulse stability
+- seat heat comfort overlays in non-strip zones
+- preset transition around motion-profile changes (temporal/contrast behavior continuity)

@@ -6,9 +6,12 @@
 #include "event_layer.h"
 #include "led_runtime.h"
 #include "overlay_palette.h"
+#include "scene_preset.h"
+#include "color_worlds.h"
 #include "zone_roles.h"
 #include "brightness_pipeline.h"
 #include "scene_color_model.h"
+#include "runtime_debug_hooks.h"
 #include "stm32g4xx_hal.h"
 #include <math.h>
 #include <string.h>
@@ -40,6 +43,7 @@ static uint8_t zone_is_tiny(const zone_map_t *zm)
 
 static float comfort_hvac_zone_dim(zone_id_t z);
 static void scene_entity_sample_zone(const scene_color_entity_t *e,
+                                     const scene_preset_t *preset,
                                      zone_id_t z,
                                      float pos01,
                                      float t_sec,
@@ -47,13 +51,15 @@ static void scene_entity_sample_zone(const scene_color_entity_t *e,
                                      uint8_t *g,
                                      uint8_t *b);
 
-static void apply_strip_scene_model(const scene_color_entity_t *entity, const base_scene_t *pl)
+static void apply_strip_scene_model(const scene_color_entity_t *entity,
+                                    const scene_preset_t *preset,
+                                    const base_scene_t *pl)
 {
     const zone_map_t *zm = &g_zone_map[ZONE_STRIP];
     uint16_t i;
     float t_sec;
 
-    if (!entity || !entity->valid || !pl) return;
+    if (!entity || !entity->valid || !pl || !preset) return;
     if (!zm || !zm->strip || zm->count == 0u) return;
 
     t_sec = (float)pl->t0_ms * 0.001f;
@@ -61,7 +67,29 @@ static void apply_strip_scene_model(const scene_color_entity_t *entity, const ba
         float pos = (zm->count > 1u) ? ((float)i / (float)(zm->count - 1u)) : 0.0f;
         uint8_t r = 0u, g = 0u, b = 0u;
         float br = brightness_pipeline_clamp01(pl->calc_brightness);
-        scene_entity_sample_zone(entity, ZONE_STRIP, pos, t_sec + pos * 0.8f, &r, &g, &b);
+        scene_entity_sample_zone(entity, preset, ZONE_STRIP, pos, t_sec + pos * 0.8f * preset->temporal_scale, &r, &g, &b);
+        r = (uint8_t)((float)r * br);
+        g = (uint8_t)((float)g * br);
+        b = (uint8_t)((float)b * br);
+        led_runtime_set_pixel_rgb(zm->strip, (uint16_t)(zm->first + i), r, g, b);
+    }
+}
+
+static void apply_strip_world_model(const color_world_selection_t *world,
+                                    const scene_preset_t *preset,
+                                    const base_scene_t *pl)
+{
+    const zone_map_t *zm = &g_zone_map[ZONE_STRIP];
+    uint16_t i;
+
+    if (!world || !world->active || !pl || !preset) return;
+    if (!zm || !zm->strip || zm->count == 0u) return;
+
+    for (i = 0u; i < zm->count; ++i) {
+        float pos = (zm->count > 1u) ? ((float)i / (float)(zm->count - 1u)) : 0.0f;
+        uint8_t r = 0u, g = 0u, b = 0u;
+        float br = brightness_pipeline_clamp01(pl->calc_brightness);
+        color_world_sample(world, ZONE_STRIP, pos, pl->t0_ms, preset, &r, &g, &b);
         r = (uint8_t)((float)r * br);
         g = (uint8_t)((float)g * br);
         b = (uint8_t)((float)b * br);
@@ -70,6 +98,7 @@ static void apply_strip_scene_model(const scene_color_entity_t *entity, const ba
 }
 
 static void scene_entity_sample_zone(const scene_color_entity_t *e,
+                                     const scene_preset_t *preset,
                                      zone_id_t z,
                                      float pos01,
                                      float t_sec,
@@ -83,7 +112,7 @@ static void scene_entity_sample_zone(const scene_color_entity_t *e,
     scene_rgb8_t wc;
     scene_rgb8_t out;
 
-    if (!e || !e->valid || !r || !g || !b) return;
+    if (!e || !e->valid || !r || !g || !b || !preset) return;
     if (pos01 < 0.0f) pos01 = 0.0f;
     if (pos01 > 1.0f) pos01 = 1.0f;
 
@@ -96,12 +125,13 @@ static void scene_entity_sample_zone(const scene_color_entity_t *e,
     wc.g = (uint8_t)((float)e->accent_warm.g * (1.0f - mix_wc) + (float)e->accent_cool.g * mix_wc + 0.5f);
     wc.b = (uint8_t)((float)e->accent_warm.b * (1.0f - mix_wc) + (float)e->accent_cool.b * mix_wc + 0.5f);
 
-    mix_neutral = 0.10f + 0.34f * (1.0f - e->energy);
+    mix_neutral = 0.10f + 0.34f * (1.0f - e->energy) + preset->neutral_mix_bias;
     if (mix_neutral > 0.65f) mix_neutral = 0.65f;
+    if (mix_neutral < 0.02f) mix_neutral = 0.02f;
 
-    out.r = (uint8_t)((float)e->base.r * 0.70f + (float)wc.r * 0.30f + 0.5f);
-    out.g = (uint8_t)((float)e->base.g * 0.70f + (float)wc.g * 0.30f + 0.5f);
-    out.b = (uint8_t)((float)e->base.b * 0.70f + (float)wc.b * 0.30f + 0.5f);
+    out.r = (uint8_t)((float)e->base.r * (0.70f / preset->contrast_gain) + (float)wc.r * (0.30f * preset->contrast_gain) + 0.5f);
+    out.g = (uint8_t)((float)e->base.g * (0.70f / preset->contrast_gain) + (float)wc.g * (0.30f * preset->contrast_gain) + 0.5f);
+    out.b = (uint8_t)((float)e->base.b * (0.70f / preset->contrast_gain) + (float)wc.b * (0.30f * preset->contrast_gain) + 0.5f);
     out.r = (uint8_t)((float)out.r * (1.0f - mix_neutral) + (float)e->neutral_soft.r * mix_neutral + 0.5f);
     out.g = (uint8_t)((float)out.g * (1.0f - mix_neutral) + (float)e->neutral_soft.g * mix_neutral + 0.5f);
     out.b = (uint8_t)((float)out.b * (1.0f - mix_neutral) + (float)e->neutral_soft.b * mix_neutral + 0.5f);
@@ -114,6 +144,7 @@ static void scene_entity_sample_zone(const scene_color_entity_t *e,
 static void apply_zone_fx_modern(zone_id_t z,
                                  const base_scene_t *pl,
                                  const scene_color_entity_t *entity,
+                                 const scene_preset_t *preset,
                                  uint8_t effect_id)
 {
     const zone_map_t *zm = &g_zone_map[z];
@@ -124,7 +155,7 @@ static void apply_zone_fx_modern(zone_id_t z,
     float speed_scale = 1.0f;
     float breathe_freq = 0.05f;
 
-    if (!pl || !entity || !entity->valid) return;
+    if (!pl || !entity || !entity->valid || !preset) return;
     if (!zm || !zm->strip || zm->count == 0u) return;
     if (z == ZONE_STRIP) return;
 
@@ -150,11 +181,11 @@ static void apply_zone_fx_modern(zone_id_t z,
     t_sec = (float)pl->t0_ms * 0.001f;
     if (entity->energy > 0.65f) speed_scale = 1.25f;
     if (entity->energy < 0.40f) speed_scale = 0.78f;
-    breathe_freq *= speed_scale;
+    breathe_freq *= speed_scale * preset->temporal_scale;
 
     if (effect_id == 0u) {
         uint8_t r, g, b;
-        scene_entity_sample_zone(entity, z, 0.5f, t_sec, &r, &g, &b);
+        scene_entity_sample_zone(entity, preset, z, 0.5f, t_sec, &r, &g, &b);
         r = (uint8_t)((float)r * br);
         g = (uint8_t)((float)g * br);
         b = (uint8_t)((float)b * br);
@@ -169,7 +200,7 @@ static void apply_zone_fx_modern(zone_id_t z,
         float s = 0.5f + 0.5f * sinf(2.0f * (float)M_PI * breathe_freq * t_sec + phase);
         float br_dyn = br * (0.42f + 0.58f * s);
         uint8_t r, g, b;
-        scene_entity_sample_zone(entity, z, 0.5f, t_sec, &r, &g, &b);
+        scene_entity_sample_zone(entity, preset, z, 0.5f, t_sec, &r, &g, &b);
         r = (uint8_t)((float)r * br_dyn);
         g = (uint8_t)((float)g * br_dyn);
         b = (uint8_t)((float)b * br_dyn);
@@ -186,7 +217,7 @@ static void apply_zone_fx_modern(zone_id_t z,
         for (uint16_t i = 0u; i < zm->count; ++i) {
             float pos = (zm->count > 1u) ? ((float)i / (float)(zm->count - 1u)) : 0.0f;
             uint8_t r, g, b;
-            scene_entity_sample_zone(entity, z, pos, t_sec + speed * t_sec + spread * pos, &r, &g, &b);
+            scene_entity_sample_zone(entity, preset, z, pos, t_sec + speed * t_sec * preset->temporal_scale + spread * pos, &r, &g, &b);
             r = (uint8_t)((float)r * br);
             g = (uint8_t)((float)g * br);
             b = (uint8_t)((float)b * br);
@@ -195,15 +226,60 @@ static void apply_zone_fx_modern(zone_id_t z,
     }
 }
 
+static void apply_zone_world(zone_id_t z,
+                             const base_scene_t *pl,
+                             const scene_preset_t *preset,
+                             const color_world_selection_t *world)
+{
+    const zone_map_t *zm = &g_zone_map[z];
+    float br;
+    brightness_zone_eval_t br_eval;
+    float rel = 1.0f;
+    uint16_t i;
+
+    if (!pl || !preset || !world || !world->active) return;
+    if (!zm || !zm->strip || zm->count == 0u) return;
+    if (z == ZONE_STRIP) return;
+
+    if (z == ZONE_HANDLE) rel = 1.06f;
+    else if (z == ZONE_STORAGE) rel = 0.90f;
+    else if (z == ZONE_FOOTWELL) rel = 0.84f;
+
+    brightness_pipeline_eval_zone(pl->calc_brightness,
+                                  z,
+                                  rel,
+                                  comfort_hvac_zone_dim(z),
+                                  g_night_mode_state,
+                                  &br_eval);
+    br = br_eval.value;
+    if (br <= 0.0f) {
+        for (i = 0u; i < zm->count; ++i) {
+            led_runtime_set_pixel_rgb(zm->strip, (uint16_t)(zm->first + i), 0u, 0u, 0u);
+        }
+        return;
+    }
+
+    for (i = 0u; i < zm->count; ++i) {
+        float pos = (zm->count > 1u) ? ((float)i / (float)(zm->count - 1u)) : 0.0f;
+        uint8_t r = 0u, g = 0u, b = 0u;
+        color_world_sample(world, z, pos, pl->t0_ms, preset, &r, &g, &b);
+        r = (uint8_t)((float)r * br);
+        g = (uint8_t)((float)g * br);
+        b = (uint8_t)((float)b * br);
+        led_runtime_set_pixel_rgb(zm->strip, (uint16_t)(zm->first + i), r, g, b);
+    }
+}
+
 static void render_zone_model_static(zone_id_t zone_id,
                                      const scene_color_entity_t *entity,
+                                     const scene_preset_t *preset,
                                      float br_scale,
                                      float t_sec)
 {
     const zone_map_t *zm = &g_zone_map[zone_id];
     uint16_t i;
 
-    if (!entity || !entity->valid) return;
+    if (!entity || !entity->valid || !preset) return;
     if (!zm || !zm->strip || zm->count == 0u) return;
     if (br_scale <= 0.0f) {
         for (i = 0u; i < zm->count; ++i) {
@@ -216,7 +292,7 @@ static void render_zone_model_static(zone_id_t zone_id,
     for (i = 0u; i < zm->count; ++i) {
         float pos = (zm->count > 1u) ? ((float)i / (float)(zm->count - 1u)) : 0.0f;
         uint8_t r, g, b;
-        scene_entity_sample_zone(entity, zone_id, pos, t_sec + pos * 0.4f, &r, &g, &b);
+        scene_entity_sample_zone(entity, preset, zone_id, pos, t_sec + pos * 0.4f * preset->temporal_scale, &r, &g, &b);
         r = (uint8_t)((float)r * br_scale);
         g = (uint8_t)((float)g * br_scale);
         b = (uint8_t)((float)b * br_scale);
@@ -316,6 +392,7 @@ static void submit_m4_entity_roles(uint32_t now_ms)
 {
     ambient_state_snapshot_t amb_state;
     scene_color_entity_t entity;
+    scene_preset_t preset;
     float t = (float)now_ms * 0.001f;
     float pulse;
     float guidance_alpha;
@@ -325,6 +402,7 @@ static void submit_m4_entity_roles(uint32_t now_ms)
                                     can_ambient_get_motion_profile(),
                                     can_ambient_is_night_mode(),
                                     &entity);
+    scene_preset_resolve(can_ambient_get_motion_profile(), can_ambient_is_night_mode(), &preset);
     if (!entity.valid) return;
 
     /* Light ambient-base reinforcement layer (does not replace base scene). */
@@ -343,7 +421,7 @@ static void submit_m4_entity_roles(uint32_t now_ms)
 
     /* Guidance shimmer tied to scene energy. */
     pulse = 0.5f + 0.5f * sinf(2.0f * (float)M_PI * 0.08f * t);
-    guidance_alpha = (0.04f + 0.10f * entity.energy) * pulse;
+    guidance_alpha = (0.04f + 0.10f * entity.energy) * pulse * preset.overlay_gain_mul;
     zone_roles_submit(ZONE_STRIP, ZONE_ROLE_GUIDANCE_LINE,
                       entity.guidance_line.r, entity.guidance_line.g, entity.guidance_line.b,
                       guidance_alpha, ZONE_BLEND_MAX);
@@ -362,7 +440,9 @@ void zones_apply_scene(const base_scene_t *pl)
 {
     ambient_state_snapshot_t amb_state;
     scene_color_entity_t scene_entity;
+    scene_preset_t preset;
     uint8_t effect_id = 0u;
+    color_world_selection_t world_sel;
 
     if (!pl) return;
 
@@ -376,12 +456,24 @@ void zones_apply_scene(const base_scene_t *pl)
     zone_roles_base_begin();
     ambient_state_store_get_snapshot(&amb_state);
     effect_id = amb_state.effect_id;
+    if (effect_id > 1u) effect_id = 1u;
+    scene_preset_resolve(can_ambient_get_motion_profile(), can_ambient_is_night_mode(), &preset);
+    color_world_select(effect_id, amb_state.color_id, pl->t0_ms, &world_sel);
+    runtime_debug_hooks_diag_set_world(world_sel.active,
+                                       (uint8_t)world_sel.id,
+                                       world_sel.generated,
+                                       world_sel.dominant.r,
+                                       world_sel.dominant.g,
+                                       world_sel.dominant.b,
+                                       world_sel.selection_distance);
     scene_color_entity_from_ambient(&amb_state,
                                     can_ambient_get_motion_profile(),
                                     can_ambient_is_night_mode(),
                                     &scene_entity);
-    if (scene_entity.valid) {
-        apply_strip_scene_model(&scene_entity, pl);
+    if (world_sel.active) {
+        apply_strip_world_model(&world_sel, &preset, pl);
+    } else if (scene_entity.valid) {
+        apply_strip_scene_model(&scene_entity, &preset, pl);
     }
     zone_roles_publish_ambient_base_zone(ZONE_STRIP);
 
@@ -410,7 +502,11 @@ void zones_apply_scene(const base_scene_t *pl)
         const zone_map_t *zm = &g_zone_map[zone_id];
         if (!zm || !zm->strip || zm->count == 0) continue;
 
-        apply_zone_fx_modern(zone_id, pl, &scene_entity, effect_id);
+        if (world_sel.active) {
+            apply_zone_world(zone_id, pl, &preset, &world_sel);
+        } else {
+            apply_zone_fx_modern(zone_id, pl, &scene_entity, &preset, 0u);
+        }
 
         zone_roles_publish_ambient_base_zone(zone_id);
     }
@@ -421,6 +517,7 @@ void zones_apply_intro(const base_scene_t *pl, float t_norm)
     if (!pl) return;
     ambient_state_snapshot_t amb_state;
     scene_color_entity_t scene_entity;
+    scene_preset_t preset;
     float t_sec = (float)pl->t0_ms * 0.001f;
 
     float t = t_norm;
@@ -428,6 +525,7 @@ void zones_apply_intro(const base_scene_t *pl, float t_norm)
     if (t > 1.0f) t = 1.0f;
 
     ambient_state_store_get_snapshot(&amb_state);
+    scene_preset_resolve(can_ambient_get_motion_profile(), can_ambient_is_night_mode(), &preset);
     scene_color_entity_from_ambient(&amb_state,
                                     can_ambient_get_motion_profile(),
                                     can_ambient_is_night_mode(),
@@ -499,7 +597,7 @@ void zones_apply_intro(const base_scene_t *pl, float t_norm)
         float k = profile_blend_curve(smoothstep5(local));
 
         float br_zone = br * k;
-        render_zone_model_static(zone_id, &scene_entity, br_zone, t_sec);
+        render_zone_model_static(zone_id, &scene_entity, &preset, br_zone, t_sec);
     }
 }
 
@@ -508,6 +606,7 @@ void zones_apply_outro(const base_scene_t *pl, float t_norm)
     if (!pl) return;
     ambient_state_snapshot_t amb_state;
     scene_color_entity_t scene_entity;
+    scene_preset_t preset;
     float t_sec = (float)pl->t0_ms * 0.001f;
 
     float t = t_norm;
@@ -518,6 +617,7 @@ void zones_apply_outro(const base_scene_t *pl, float t_norm)
     float k_base = 1.0f - profile_blend_curve(smoothstep5(t));
 
     ambient_state_store_get_snapshot(&amb_state);
+    scene_preset_resolve(can_ambient_get_motion_profile(), can_ambient_is_night_mode(), &preset);
     scene_color_entity_from_ambient(&amb_state,
                                     can_ambient_get_motion_profile(),
                                     can_ambient_is_night_mode(),
@@ -565,7 +665,7 @@ void zones_apply_outro(const base_scene_t *pl, float t_norm)
         if (k_zone < 0.0f) k_zone = 0.0f;
         if (k_zone > 1.0f) k_zone = 1.0f;
 
-        render_zone_model_static(zone_id, &scene_entity, pl->calc_brightness * k_zone, t_sec);
+        render_zone_model_static(zone_id, &scene_entity, &preset, pl->calc_brightness * k_zone, t_sec);
     }
 }
 
@@ -575,11 +675,13 @@ void zones_apply_bridge(const base_scene_t *pl, float t_norm)
     if (!pl) return;
     ambient_state_snapshot_t amb_state;
     scene_color_entity_t scene_entity;
+    scene_preset_t preset;
 
     float blend = clamp01f(t_norm);
     float intro_k = 1.0f - blend;
 
     ambient_state_store_get_snapshot(&amb_state);
+    scene_preset_resolve(can_ambient_get_motion_profile(), can_ambient_is_night_mode(), &preset);
     scene_color_entity_from_ambient(&amb_state,
                                     can_ambient_get_motion_profile(),
                                     can_ambient_is_night_mode(),
@@ -595,7 +697,7 @@ void zones_apply_bridge(const base_scene_t *pl, float t_norm)
         if (!zm || !zm->strip || zm->count == 0) continue;
 
         /* First render modern scene content into zone buffer. */
-        apply_zone_fx_modern(zone_id, pl, &scene_entity, amb_state.effect_id);
+        apply_zone_fx_modern(zone_id, pl, &scene_entity, &preset, amb_state.effect_id);
 
         /* Intro-like color: primary+neutral mix at reduced energy. */
         brightness_zone_eval_t br_eval;
@@ -637,12 +739,14 @@ void zones_apply_interrupt_overlay(uint32_t now_ms)
     ambient_state_snapshot_t amb_state;
     scene_color_entity_t scene_entity;
     overlay_palette_t palette;
+    scene_preset_t preset;
 
     ambient_state_store_get_snapshot(&amb_state);
     scene_color_entity_from_ambient(&amb_state,
                                     can_ambient_get_motion_profile(),
                                     can_ambient_is_night_mode(),
                                     &scene_entity);
+    scene_preset_resolve(can_ambient_get_motion_profile(), can_ambient_is_night_mode(), &preset);
     overlay_palette_build(&scene_entity, &palette);
 
     zone_roles_frame_begin();
@@ -657,7 +761,7 @@ void zones_apply_interrupt_overlay(uint32_t now_ms)
                 uint8_t r = (split > 0.0f) ? palette.warm.r : palette.cool.r;
                 uint8_t g = (split > 0.0f) ? palette.warm.g : palette.cool.g;
                 uint8_t b = (split > 0.0f) ? palette.warm.b : palette.cool.b;
-                float gain = AMB_HVAC_SPLIT_GAIN * mag;
+                float gain = AMB_HVAC_SPLIT_GAIN * mag * preset.overlay_gain_mul;
                 apply_override_to_zone(ZONE_STRIP, gain, r, g, b);
             }
         }
@@ -671,9 +775,9 @@ void zones_apply_interrupt_overlay(uint32_t now_ms)
             uint8_t r = palette.warm.r;
             uint8_t g = palette.warm.g;
             uint8_t b = palette.warm.b;
-            apply_override_to_zone(ZONE_FOOTWELL, AMB_SEAT_HEAT_OVERLAY_GAIN_FOOTWELL * seat, r, g, b);
-            apply_override_to_zone(ZONE_STORAGE, AMB_SEAT_HEAT_OVERLAY_GAIN_STORAGE * seat, r, g, b);
-            apply_override_to_zone(ZONE_STRIP, AMB_SEAT_HEAT_OVERLAY_GAIN_STRIP * seat, r, g, b);
+            apply_override_to_zone(ZONE_FOOTWELL, AMB_SEAT_HEAT_OVERLAY_GAIN_FOOTWELL * seat * preset.overlay_gain_mul, r, g, b);
+            apply_override_to_zone(ZONE_STORAGE, AMB_SEAT_HEAT_OVERLAY_GAIN_STORAGE * seat * preset.overlay_gain_mul, r, g, b);
+            apply_override_to_zone(ZONE_STRIP, AMB_SEAT_HEAT_OVERLAY_GAIN_STRIP * seat * preset.overlay_gain_mul, r, g, b);
         }
     }
 #endif
@@ -702,9 +806,9 @@ void zones_apply_interrupt_overlay(uint32_t now_ms)
             s_prev_any = 1u;
             pulse = 0.5f - 0.5f * cosf(2.0f * (float)M_PI * wrap01f(t));
             pulse = smoothstep5(pulse);
-            apply_override_to_zone(ZONE_HANDLE, AMB_PARKING_OVERLAY_GAIN_HANDLE * side_level * pulse,
+            apply_override_to_zone(ZONE_HANDLE, AMB_PARKING_OVERLAY_GAIN_HANDLE * side_level * pulse * preset.overlay_gain_mul,
                                    palette.parking.r, palette.parking.g, palette.parking.b);
-            apply_override_to_zone(ZONE_STRIP, AMB_PARKING_OVERLAY_GAIN_STRIP * side_level * pulse,
+            apply_override_to_zone(ZONE_STRIP, AMB_PARKING_OVERLAY_GAIN_STRIP * side_level * pulse * preset.overlay_gain_mul,
                                    palette.parking.r, palette.parking.g, palette.parking.b);
         } else {
             s_prev_any = 0u;
@@ -756,11 +860,11 @@ void zones_apply_interrupt_overlay(uint32_t now_ms)
     wg = palette.safety.g;
     wb = palette.safety.b;
 
-    apply_safety_to_zone(ZONE_HANDLE, AMB_BSM_OVERLAY_GAIN_HANDLE * luma, wr, wg, wb);
+    apply_safety_to_zone(ZONE_HANDLE, AMB_BSM_OVERLAY_GAIN_HANDLE * luma * preset.overlay_gain_mul, wr, wg, wb);
     if (dashboard_like) {
-        apply_safety_to_zone(ZONE_STRIP, (AMB_BSM_OVERLAY_GAIN_STRIP * 0.72f) * luma, wr, wg, wb);
+        apply_safety_to_zone(ZONE_STRIP, (AMB_BSM_OVERLAY_GAIN_STRIP * 0.72f) * luma * preset.overlay_gain_mul, wr, wg, wb);
     } else {
-        apply_safety_to_zone(ZONE_STRIP, (AMB_BSM_OVERLAY_GAIN_STRIP * 0.86f) * luma, wr, wg, wb);
+        apply_safety_to_zone(ZONE_STRIP, (AMB_BSM_OVERLAY_GAIN_STRIP * 0.86f) * luma * preset.overlay_gain_mul, wr, wg, wb);
     }
 #else
     (void)now_ms;

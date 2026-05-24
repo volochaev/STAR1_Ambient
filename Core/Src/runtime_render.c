@@ -9,7 +9,9 @@
 #include "ambient_state_store.h"
 #include "event_layer.h"
 #include "led_runtime.h"
+#include "runtime_debug_hooks.h"
 #include "scene_color_model.h"
+#include "scene_preset.h"
 #include "types.h"
 #include "zones.h"
 
@@ -193,7 +195,9 @@ void runtime_render_push_black_frame(void)
     board_dispatch_led_render_all();
 }
 
-static void runtime_apply_motion_tint(led_runtime_strip_t *ws, motion_profile_t profile)
+static void runtime_apply_motion_tint(led_runtime_strip_t *ws,
+                                      motion_profile_t profile,
+                                      const scene_preset_t *preset)
 {
     float r_mul = AMB_MOTION_PROFILE_TINT_LUXURY_R;
     float g_mul = AMB_MOTION_PROFILE_TINT_LUXURY_G;
@@ -201,7 +205,7 @@ static void runtime_apply_motion_tint(led_runtime_strip_t *ws, motion_profile_t 
     uint32_t n;
     uint32_t i;
 
-    if (!ws || !ws->rgb) return;
+    if (!ws || !ws->rgb || !preset) return;
     if (profile == MOTION_PROFILE_CALM) {
         r_mul = AMB_MOTION_PROFILE_TINT_CALM_R;
         g_mul = AMB_MOTION_PROFILE_TINT_CALM_G;
@@ -212,6 +216,10 @@ static void runtime_apply_motion_tint(led_runtime_strip_t *ws, motion_profile_t 
         b_mul = AMB_MOTION_PROFILE_TINT_SPORT_B;
     }
 
+    r_mul *= preset->motion_tint_mul;
+    g_mul *= preset->motion_tint_mul;
+    b_mul *= preset->motion_tint_mul;
+
     n = (uint32_t)ws->led_count * 3u;
     for (i = 0u; i < n; i += 3u) {
         ws->rgb[i + 0u] = runtime_u8_mul((float)ws->rgb[i + 0u] * r_mul);
@@ -220,7 +228,9 @@ static void runtime_apply_motion_tint(led_runtime_strip_t *ws, motion_profile_t 
     }
 }
 
-static float runtime_drive_mode_boost_gain(uint32_t now, motion_profile_t profile)
+static float runtime_drive_mode_boost_gain(uint32_t now,
+                                           motion_profile_t profile,
+                                           const scene_preset_t *preset)
 {
     static motion_profile_t prev = (motion_profile_t)0xFFu;
     static uint8_t active = 0u;
@@ -230,6 +240,7 @@ static float runtime_drive_mode_boost_gain(uint32_t now, motion_profile_t profil
     float t;
     float env;
 
+    if (!preset) return 1.0f;
     if (profile == MOTION_PROFILE_CALM) {
         max_gain = AMB_DRIVE_MODE_BOOST_GAIN_CALM;
     } else if (profile == MOTION_PROFILE_SPORT) {
@@ -260,7 +271,7 @@ static float runtime_drive_mode_boost_gain(uint32_t now, motion_profile_t profil
     t = runtime_clamp01((float)elapsed / (float)AMB_DRIVE_MODE_BOOST_DURATION_MS);
     env = sinf(3.14159265f * t);
     env = env * env;
-    return 1.0f + max_gain * env;
+    return 1.0f + (max_gain * preset->contrast_gain) * env;
 }
 
 static void runtime_apply_boost(led_runtime_strip_t *ws, float gain)
@@ -275,7 +286,10 @@ static void runtime_apply_boost(led_runtime_strip_t *ws, float gain)
     }
 }
 
-static void runtime_apply_energy_trim(led_runtime_strip_t *ws, motion_profile_t profile, uint8_t night_mode)
+static void runtime_apply_energy_trim(led_runtime_strip_t *ws,
+                                      motion_profile_t profile,
+                                      uint8_t night_mode,
+                                      const scene_preset_t *preset)
 {
 #if AMB_ENABLE_ENERGY_AWARE_TRIM
     float sat = AMB_ENERGY_SAT_LUXURY;
@@ -283,13 +297,14 @@ static void runtime_apply_energy_trim(led_runtime_strip_t *ws, motion_profile_t 
     uint32_t n;
     uint32_t i;
 
-    if (!ws || !ws->rgb) return;
+    if (!ws || !ws->rgb || !preset) return;
     if (profile == MOTION_PROFILE_CALM) {
         sat = AMB_ENERGY_SAT_CALM;
     } else if (profile == MOTION_PROFILE_SPORT) {
         sat = AMB_ENERGY_SAT_SPORT;
     }
 
+    sat *= preset->energy_sat_mul;
     n = (uint32_t)ws->led_count * 3u;
     for (i = 0u; i < n; i += 3u) {
         float r = (float)ws->rgb[i + 0u];
@@ -307,6 +322,7 @@ static void runtime_apply_energy_trim(led_runtime_strip_t *ws, motion_profile_t 
     (void)ws;
     (void)profile;
     (void)night_mode;
+    (void)preset;
 #endif
 }
 
@@ -409,9 +425,13 @@ static void runtime_apply_low_level_chroma(led_runtime_strip_t *ws)
 #endif
 }
 
-static uint8_t runtime_profile_slew_step(motion_profile_t profile, float boost_gain, float fan_level)
+static uint8_t runtime_profile_slew_step(motion_profile_t profile,
+                                         float boost_gain,
+                                         float fan_level,
+                                         const scene_preset_t *preset)
 {
     float step = (float)AMB_FRAME_SLEW_STEP_BASE;
+    if (!preset) return (uint8_t)step;
 
     if (profile == MOTION_PROFILE_CALM) {
         step *= AMB_FRAME_SLEW_SCALE_CALM;
@@ -430,6 +450,7 @@ static uint8_t runtime_profile_slew_step(motion_profile_t profile, float boost_g
 #else
     (void)fan_level;
 #endif
+    step *= preset->temporal_scale;
     if (step < 1.0f) step = 1.0f;
     if (step > 60.0f) step = 60.0f;
     return (uint8_t)(step + 0.5f);
@@ -474,11 +495,14 @@ void runtime_render_postprocess_frame(uint32_t now)
     led_runtime_strip_t *processed[ZONE_MAX];
     uint8_t processed_count = 0u;
     motion_profile_t profile = can_ambient_get_motion_profile();
+    scene_preset_t preset;
     can_bsm_state_t bsm = can_ambient_get_bsm_state();
     uint8_t night_mode = can_ambient_is_night_mode();
-    float boost_gain = runtime_drive_mode_boost_gain(now, profile);
+    scene_preset_resolve(profile, night_mode, &preset);
+    runtime_debug_hooks_diag_set_preset(&preset);
+    float boost_gain = runtime_drive_mode_boost_gain(now, profile, &preset);
     float fan_level = can_ambient_get_hvac_fan_level();
-    uint8_t slew_step = runtime_profile_slew_step(profile, boost_gain, fan_level);
+    uint8_t slew_step = runtime_profile_slew_step(profile, boost_gain, fan_level, &preset);
     float bsm_level = bsm.left_level;
     uint8_t bsm_active = 0u;
     uint8_t hvac_temp_event_active = event_layer_is_hvac_temp_active(now);
@@ -568,8 +592,8 @@ void runtime_render_postprocess_frame(uint32_t now)
         processed[processed_count++] = ws;
         runtime_apply_cabin_modifiers(ws, s_dim_scale, s_sun_gain, s_reverse_blend);
         if (apply_motion_post) {
-            runtime_apply_motion_tint(ws, profile);
-            runtime_apply_energy_trim(ws, profile, night_mode);
+            runtime_apply_motion_tint(ws, profile, &preset);
+            runtime_apply_energy_trim(ws, profile, night_mode, &preset);
             runtime_apply_boost(ws, boost_gain);
         }
         runtime_apply_low_level_chroma(ws);

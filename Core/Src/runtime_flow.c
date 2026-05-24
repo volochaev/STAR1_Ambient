@@ -99,6 +99,12 @@ static void runtime_activate_from_oem(runtime_flow_ctx_t *ctx,
 }
 
 #if AMB_ENABLE_SLEEP_MODE
+static void runtime_sleep_note_periodic_rtc_wakeup_cycle(void)
+{
+    can_ambient_note_stop_rtc_wakeup_cycle();
+    runtime_debug_hooks_note_stop_rtc_cycle(HAL_GetTick());
+}
+
 static void runtime_sleep_cancel(runtime_flow_ctx_t *ctx, led_runtime_strip_t *main_strip)
 {
     if (!ctx || !ctx->sleep_fade_active) return;
@@ -207,13 +213,16 @@ static uint8_t runtime_sleep_enter_stop_and_recover(runtime_flow_ctx_t *ctx)
 #if AMB_ENABLE_WATCHDOG
     stop_hooks.rtc_wakeup_start = ctx->rtc_wakeup_start;
     stop_hooks.rtc_wakeup_stop = ctx->rtc_wakeup_stop;
+    stop_hooks.note_periodic_wakeup_cycle = runtime_sleep_note_periodic_rtc_wakeup_cycle;
 #else
     stop_hooks.rtc_wakeup_start = NULL;
     stop_hooks.rtc_wakeup_stop = NULL;
+    stop_hooks.note_periodic_wakeup_cycle = NULL;
 #endif
     runtime_stop_enter_and_wait(&stop_hooks);
 
     can_ambient_note_stop_wakeup(runtime_stop_get_wakeup_source());
+    runtime_debug_hooks_note_stop_wake(runtime_stop_get_wakeup_source(), HAL_GetTick());
     handle_pwm_resume_after_stop();
     can_ambient_exit_sleep();
 

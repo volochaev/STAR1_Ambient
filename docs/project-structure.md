@@ -29,7 +29,8 @@ STAR1_Ambient/
 - `CAN/ambient.c` - orchestration entry for CAN subsystem.
 - `CAN/ambient_rx.c` - parse OEM/HU/BODY + derived states.
 - `CAN/ambient_tx.c` - broadcast/status packet build.
-- `CAN/ambient_backend*.c` - modern backend state update path.
+- `CAN/ambient_backend.c` - backend facade for ambient ingress/state updates.
+- `CAN/ambient_source_arbiter.c` - source arbitration (`463` modern priority, `325` legacy fallback) + legacy bank cycler.
 - `CAN/ambient_state_store.c` - normalized ambient state snapshot.
 - `CAN/ambient_persist.c` + `CAN/flash_storage.c` - persistence.
 - `CAN/ambient_role.c` - discovery/role policy.
@@ -42,9 +43,15 @@ STAR1_Ambient/
 - `Lightning/zones.c` - zone render logic.
 - `Lightning/event_layer.c` - overlays/events over base scene.
 - `Lightning/scene_color_model.c` - color model generation.
+- `Lightning/oem_color_wheel.c` - canonical OEM 12-color wheel lookup.
+- `Lightning/scene_preset.c` - active preset selection from runtime context.
+- `Lightning/lighting_profile_registry.c` - canonical preset coefficient registry.
+- `Lightning/color_worlds.c` - world-first animated ambient palettes (`effect=1`).
 - `Lightning/runtime_dimming_policy.c` - dimming policy layer.
 - `Lightning/zone_roles.c` - role-based zone contributions.
 - `Lightning/driver.c` + `Core/Src/led_runtime.c` - LED output backend.
+
+Model details: [docs/lighting-model.md](/Users/nv/STM32CubeIDE/workspace_1.19.0/STAR1_Ambient/docs/lighting-model.md)
 
 ## Board abstraction
 

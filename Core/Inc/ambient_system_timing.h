@@ -87,6 +87,9 @@ extern "C" {
 #ifndef AMB_WAIT_OEM_RESLEEP_MS
 #define AMB_WAIT_OEM_RESLEEP_MS     1200u
 #endif
+#ifndef AMB_STOP_WDG_WAKEUP_SEC
+#define AMB_STOP_WDG_WAKEUP_SEC     4u
+#endif
 
 #define AMB_FLASH_SAVE_DELAY_MS     10000u
 

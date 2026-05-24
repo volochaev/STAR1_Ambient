@@ -5,7 +5,6 @@
 #include "runtime_can.h"
 
 #include "ambient.h"
-#include "ambient_backend.h"
 #include "ambient_config.h"
 #include "main.h"
 
@@ -47,7 +46,7 @@ void runtime_can_tx_scheduler_tick(uint32_t now,
     if (allow_can_tx) {
         if (can_ambient_is_master() && !startup_discovery_only &&
             (now - last_master_send_ms) >= AMB_CAN_MASTER_TX_INTERVAL_MS) {
-            if (ambient_backend_get_kind() == AMBIENT_BACKEND_MODERN) {
+            {
                 can_modern_diag_t modern_diag;
                 can_ambient_get_modern_diag(&modern_diag);
                 if (modern_diag.conflict_active) {
@@ -56,8 +55,6 @@ void runtime_can_tx_scheduler_tick(uint32_t now,
                 if (now >= modern_conflict_backoff_until_ms) {
                     can_ambient_send_modern_status_packet();
                 }
-            } else {
-                can_ambient_send_master_packet();
             }
             last_master_send_ms = now;
         }

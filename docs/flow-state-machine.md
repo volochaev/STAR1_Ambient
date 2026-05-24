@@ -17,7 +17,7 @@
 |---|---|---|---|---|
 | `BOOT` | startup tick | всегда | `wait_oem_after_wake=0`, `wait_oem_enter_ms=now` | `WAIT_OEM` |
 | `WAKE_RECOVER` | first tick after wake | всегда | `wait_oem_after_wake=1`, `wait_oem_enter_ms=now` | `WAIT_OEM` |
-| `WAIT_OEM` | OEM/master snapshot ready | `oem_received=1` и (`ignition ON` или, если `AMB_ENABLE_START_GATE_DOOR_OPEN=1`, дверь для board открыта) | выбрать theme/bank, `director_init()`, `base_scene_init()`, запуск `FX_WELCOME` intro | `ACTIVE` |
+| `WAIT_OEM` | OEM/master snapshot ready | `oem_received=1` и (`ignition ON` или, если `AMB_ENABLE_START_GATE_DOOR_OPEN=1`, дверь для board открыта) | инициализировать modern scene (`scene_color_entity` + preset context), `director_init()`, `base_scene_init()`, запуск `FX_WELCOME` intro | `ACTIVE` |
 | `WAIT_OEM` | wake timeout | `wait_oem_after_wake=1` и `wait_ms >= AMB_WAIT_OEM_RESLEEP_MS` | повторный STOP cycle | `STOP -> WAKE_RECOVER` |
 | `ACTIVE` | idle sleep request | `can_ambient_should_sleep()` | старт fade-out (`sleep_fade_active=1`) | `SLEEP_PREP` |
 | `SLEEP_PREP` | fade finished | `fade_elapsed >= AMB_SLEEP_FADE_OUT_MS` | outro, power off, `can_ambient_enter_sleep()`, STOP | `STOP` |

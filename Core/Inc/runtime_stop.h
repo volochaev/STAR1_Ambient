@@ -16,6 +16,7 @@ typedef struct {
     void (*restore_system_clock)(void);
     void (*rtc_wakeup_start)(void);
     void (*rtc_wakeup_stop)(void);
+    void (*note_periodic_wakeup_cycle)(void);
 } runtime_stop_hooks_t;
 
 /** Reset stored wakeup source marker before entering STOP flow. */

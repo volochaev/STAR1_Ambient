@@ -32,36 +32,9 @@ extern "C" {
 #define AMB_DAY_NONSTRIP_GAIN             1.25f
 
 /* HVAC/seat accent colors */
-#define AMB_UNLOCK_SIGNATURE_COOL_R        82u
-#define AMB_UNLOCK_SIGNATURE_COOL_G        154u
-#define AMB_UNLOCK_SIGNATURE_COOL_B        255u
-#define AMB_UNLOCK_SIGNATURE_WARM_R        255u
-#define AMB_UNLOCK_SIGNATURE_WARM_G        132u
-#define AMB_UNLOCK_SIGNATURE_WARM_B        34u
 #define AMB_DOOR_OPEN_ACCENT_R             255u
 #define AMB_DOOR_OPEN_ACCENT_G             178u
 #define AMB_DOOR_OPEN_ACCENT_B             74u
-#define AMB_HVAC_TEMP_WARM_R             255u
-#define AMB_HVAC_TEMP_WARM_G              46u
-#define AMB_HVAC_TEMP_WARM_B               0u
-#define AMB_HVAC_TEMP_COOL_R               0u
-#define AMB_HVAC_TEMP_COOL_G              64u
-#define AMB_HVAC_TEMP_COOL_B             255u
-#define AMB_HVAC_SPLIT_WARM_R            255u
-#define AMB_HVAC_SPLIT_WARM_G             70u
-#define AMB_HVAC_SPLIT_WARM_B              0u
-#define AMB_HVAC_SPLIT_COOL_R              8u
-#define AMB_HVAC_SPLIT_COOL_G             84u
-#define AMB_HVAC_SPLIT_COOL_B            255u
-#define AMB_SEAT_HEAT_WARM_R             255u
-#define AMB_SEAT_HEAT_WARM_G             128u
-#define AMB_SEAT_HEAT_WARM_B             34u
-#define AMB_PARK_WARN_R                  255u
-#define AMB_PARK_WARN_G                  108u
-#define AMB_PARK_WARN_B                  8u
-#define AMB_REVERSE_HOLD_R               88u
-#define AMB_REVERSE_HOLD_G               146u
-#define AMB_REVERSE_HOLD_B               255u
 
 /* Profile tint/energy mapping */
 #define AMB_MOTION_PROFILE_TINT_LUXURY_R 1.00f

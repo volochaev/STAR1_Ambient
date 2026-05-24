@@ -37,6 +37,13 @@ Decoded request fields (working map):
 Runtime effect:
 - stored as latest modern request (`g_modern_rq_*`)
 - consumed by backend -> `ambient_state_store_update_from_modern_request(...)`
+- active render semantics:
+  - `effect=0`: static OEM color mode
+  - `effect=1`: Color Worlds animated mode (fixed LUT world selection by HU color)
+- source priority semantics:
+  - if `0x463` request is fresh, modern request is authoritative;
+  - if `0x463` is stale/missing, runtime falls back to legacy `0x325` source via legacy->modern transform
+    (3 bank model with slot-cycling workaround, `effect` forced to `0`).
 - ingress validation:
   - invalid length (`len < 6`) increments `rq_invalid_len_count`
   - out-of-range values are counted (`rq_invalid_range_count`) and clamped:
@@ -57,6 +64,7 @@ Decoded status fields (working map):
 Runtime effect:
 - tracked as bus status (`g_modern_stat_*`)
 - used for conflict/diagnostic visibility in modern path.
+- status semantics follow request semantics (`0=static`, `1=Color Worlds`) in M4.1.
 - ingress validation:
   - invalid length (`len < 8`) increments `stat_invalid_len_count`
   - out-of-range values are counted (`stat_invalid_range_count`) and clamped:
@@ -150,6 +158,22 @@ CAN layer maintains event/state latches consumed by runtime:
 - night-mode source selection with staleness handling
 - parking/reverse/BSM/HVAC derived overlay states
 - ignition and request freshness gates for startup/sleep transitions
+
+## CAN to Scene Influence (compact map)
+
+| CAN ID | Signal class | Main scene / preset impact | Overlay impact |
+|---|---|---|---|
+| `0x325` | OEM legacy ambient | legacy ingress -> modern internal snapshot (`color/brightness`) | indirect via unified state |
+| `0x463` | HU ambient request | modern request state (`color/brightness/effect`) | indirect via unified state |
+| `0x12B` | body ambient status | bus truth/consistency diagnostics | conflict diagnostics |
+| `0x025`, `0x2E9` | day/night | selects `classic` vs `lounge` for luxury profile | scales overlay behavior through preset |
+| `0x38E` / drive profile source | motion profile | selects `calm/sport` preset; affects temporal/contrast signature | event/overlay gain scaling through preset |
+| `0x339` | HVAC fan level | influences temporal motion modifiers | — |
+| `0x20B`, `0x0BC` | HVAC temp trend/split | — | HVAC wave/split overlays |
+| `0x369`, `0x350` | seat heat | — | comfort overlays (`warm` accents) |
+| `0x2EE` | parking warn | — | parking pulse/context overlays |
+| `0x17E` | BSM | — | `SAFETY_ALERT` overlays (dominant role) |
+| `0x2C3`, `0x10C` | reverse | reverse scene modifiers | reverse-related safety/context behavior |
 
 ## Diagnostics
 

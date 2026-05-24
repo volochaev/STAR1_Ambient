@@ -77,6 +77,8 @@ void zone_roles_submit(zone_id_t zone,
                        zone_blend_mode_t blend_mode);
 /** Apply composed role layers to frame buffer. */
 void zone_roles_frame_apply(void);
+/** Debug self-check for safety role invariants (floor + blend fallback). */
+uint8_t zone_roles_debug_self_check(void);
 
 #ifdef __cplusplus
 }

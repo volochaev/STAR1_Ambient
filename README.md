@@ -22,13 +22,13 @@ STAR1 Ambient is an in-cabin ambient lighting firmware with:
 ### CAN
 
 - CAN overview (active modern model): [docs/can.md](/Users/nv/STM32CubeIDE/workspace_1.19.0/STAR1_Ambient/docs/can.md)
-- Working CAN ID/message notes: [docs/can_ambient_ids_spec.md](/Users/nv/STM32CubeIDE/workspace_1.19.0/STAR1_Ambient/docs/can_ambient_ids_spec.md)
-- Bench examples: [docs/can-bench-examples.md](/Users/nv/STM32CubeIDE/workspace_1.19.0/STAR1_Ambient/docs/can-bench-examples.md)
-- CAN Hacker presets: [docs/can-hacker-presets.md](/Users/nv/STM32CubeIDE/workspace_1.19.0/STAR1_Ambient/docs/can-hacker-presets.md)
 - CAN Hacker task file: [docs/canhacker.tsk](/Users/nv/STM32CubeIDE/workspace_1.19.0/STAR1_Ambient/docs/canhacker.tsk)
 
 ### Runtime behavior
 
+- Lighting model (entity/preset/roles): [docs/lighting-model.md](/Users/nv/STM32CubeIDE/workspace_1.19.0/STAR1_Ambient/docs/lighting-model.md)
+- Color Worlds spec (M4.1): [docs/color-worlds.md](/Users/nv/STM32CubeIDE/workspace_1.19.0/STAR1_Ambient/docs/color-worlds.md)
+- Handle lighting (separate PWM subsystem): [docs/handle-lighting.md](/Users/nv/STM32CubeIDE/workspace_1.19.0/STAR1_Ambient/docs/handle-lighting.md)
 - Flow state machine: [docs/flow-state-machine.md](/Users/nv/STM32CubeIDE/workspace_1.19.0/STAR1_Ambient/docs/flow-state-machine.md)
 - M4 incremental plan: [docs/m4-plan.md](/Users/nv/STM32CubeIDE/workspace_1.19.0/STAR1_Ambient/docs/m4-plan.md)
 

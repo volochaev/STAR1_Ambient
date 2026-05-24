@@ -7,6 +7,7 @@
 #include "ambient_state_store.h"
 #include "scene_color_model.h"
 #include "overlay_palette.h"
+#include "scene_preset.h"
 #include <math.h>
 #include <string.h>
 
@@ -34,6 +35,14 @@ typedef struct {
 } context_hold_t;
 static context_hold_t g_context_hold;
 
+static uint8_t scale_u8(uint8_t v, float k)
+{
+    float x = (float)v * k;
+    if (x <= 0.0f) return 0u;
+    if (x >= 255.0f) return 255u;
+    return (uint8_t)(x + 0.5f);
+}
+
 static void event_overlay_palette_build(overlay_palette_t *out)
 {
     ambient_state_snapshot_t amb_state;
@@ -46,6 +55,13 @@ static void event_overlay_palette_build(overlay_palette_t *out)
                                     can_ambient_is_night_mode(),
                                     &entity);
     overlay_palette_build(&entity, out);
+}
+
+static void event_active_preset(scene_preset_t *out)
+{
+    scene_preset_resolve(can_ambient_get_motion_profile(),
+                         can_ambient_is_night_mode(),
+                         out);
 }
 
 static float clamp01f(float x)
@@ -731,28 +747,43 @@ void event_scene_build_unlock_signature(event_scene_t *scene)
 void event_scene_build_dual_accent_auto(event_scene_t *scene, uint32_t hold_ms)
 {
     overlay_palette_t palette;
+    scene_preset_t preset;
+    uint32_t scaled_hold_ms;
     event_overlay_palette_build(&palette);
+    event_active_preset(&preset);
+    scaled_hold_ms = (uint32_t)((float)hold_ms * preset.welcome_hold_mul);
+    if (scaled_hold_ms < 80u) scaled_hold_ms = 80u;
     event_scene_build_dual_accent(scene,
-                                  palette.cool.r, palette.cool.g, palette.cool.b,
-                                  palette.warm.r, palette.warm.g, palette.warm.b,
-                                  hold_ms);
+                                  scale_u8(palette.cool.r, preset.accent_gain),
+                                  scale_u8(palette.cool.g, preset.accent_gain),
+                                  scale_u8(palette.cool.b, preset.accent_gain),
+                                  scale_u8(palette.warm.r, preset.accent_gain),
+                                  scale_u8(palette.warm.g, preset.accent_gain),
+                                  scale_u8(palette.warm.b, preset.accent_gain),
+                                  scaled_hold_ms);
 }
 
 void event_layer_start_hvac_wave_auto(uint8_t warmer, uint32_t now_ms)
 {
     overlay_palette_t palette;
+    scene_preset_t preset;
+    float gain_warm = AMB_HVAC_WAVE_OVERLAY_GAIN_WARM;
+    float gain_cool = AMB_HVAC_WAVE_OVERLAY_GAIN_COOL;
     event_overlay_palette_build(&palette);
+    event_active_preset(&preset);
+    gain_warm *= preset.hvac_wave_gain_mul;
+    gain_cool *= preset.hvac_wave_gain_mul;
     if (warmer) {
         event_layer_start_hvac_wave(palette.warm.r,
                                     palette.warm.g,
                                     palette.warm.b,
-                                    AMB_HVAC_WAVE_OVERLAY_GAIN_WARM,
+                                    gain_warm,
                                     now_ms);
     } else {
         event_layer_start_hvac_wave(palette.cool.r,
                                     palette.cool.g,
                                     palette.cool.b,
-                                    AMB_HVAC_WAVE_OVERLAY_GAIN_COOL,
+                                    gain_cool,
                                     now_ms);
     }
 }

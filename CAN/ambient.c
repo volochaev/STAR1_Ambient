@@ -35,7 +35,6 @@
 #include "ambient_tx.h"
 #include "ambient_backend.h"
 #include "ambient_state_store.h"
-#include "ambient_variant_config.h"
 #include "flash_storage.h"
 #include "scene_color_model.h"
 #include <string.h>
@@ -76,7 +75,6 @@ void can_ambient_init(FDCAN_HandleTypeDef *hfdcan)
     g_can = hfdcan;
     can_role_init();
     ambient_backend_init();
-    ambient_backend_set_kind(ambient_variant_backend_kind());
 
     /* Load saved settings from Flash */
     if (flash_storage_load((can_state_t *)&g_can_state) == 0) {
@@ -682,6 +680,11 @@ void can_ambient_exit_sleep(void)
 void can_ambient_note_stop_wakeup(uint8_t wake_src)
 {
     can_power_note_stop_wakeup(wake_src);
+}
+
+void can_ambient_note_stop_rtc_wakeup_cycle(void)
+{
+    can_power_note_stop_rtc_wakeup_cycle();
 }
 
 void can_ambient_get_power_diag(can_power_diag_t *out)
